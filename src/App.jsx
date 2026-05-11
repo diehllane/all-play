@@ -48,7 +48,7 @@ function AppRoutes() {
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter basename={import.meta.env.BASE_URL}>
+      <BrowserRouter basename="/all-play">
         <AppRoutes />
       </BrowserRouter>
     </AuthProvider>
