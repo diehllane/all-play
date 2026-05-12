@@ -133,10 +133,16 @@ export default function EventDetailPage() {
           {message && <div className={`alert alert-${message.type}`} style={{ marginBottom: '1.5rem' }}>{message.text}</div>}
 
           <div className="tab-bar">
-            {['overview', 'teams', 'categories', 'bracket config', 'settings'].map(tab => (
-              <button key={tab} className={`tab-btn ${activeTab === tab ? 'active' : ''}`}
-                onClick={() => setActiveTab(tab)}>
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            {[
+              { key: 'overview', label: 'Overview' },
+              { key: 'teams', label: 'Teams' },
+              { key: 'categories', label: 'Categories' },
+              { key: 'bracket-config', label: 'Bracket Config' },
+              { key: 'settings', label: 'Settings' },
+            ].map(tab => (
+              <button key={tab.key} className={`tab-btn ${activeTab === tab.key ? 'active' : ''}`}
+                onClick={() => setActiveTab(tab.key)}>
+                {tab.label}
               </button>
             ))}
           </div>
@@ -249,7 +255,7 @@ export default function EventDetailPage() {
             </div>
           )}
 
-          {activeTab === 'bracket config' && (
+          {activeTab === 'bracket-config' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
               <div className="card">
                 <div className="card-title">Winner's Bracket</div>
