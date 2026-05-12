@@ -1,8 +1,5 @@
 /**
  * Calculate a team's total score for a day given encounter counts and categories.
- * @param {Array} entries - [{category_id, encounter_count}]
- * @param {Array} categories - [{id, multiplier}]
- * @returns {number} total score
  */
 export function calculateDayScore(entries, categories) {
   const categoryMap = Object.fromEntries(categories.map(c => [c.id, c.multiplier]))
@@ -14,7 +11,6 @@ export function calculateDayScore(entries, categories) {
 
 /**
  * Determine matchup outcome points.
- * Returns { homePoints, awayPoints }
  * Win = 3, Tie = 2 each, Loss = 1
  */
 export function getMatchupPoints(homeScore, awayScore) {
@@ -25,8 +21,6 @@ export function getMatchupPoints(homeScore, awayScore) {
 
 /**
  * Calculate the league average score for a given day.
- * @param {Array} teamScores - array of numeric scores for all teams that day
- * @returns {number} average score
  */
 export function calculateLeagueAverage(teamScores) {
   if (!teamScores.length) return 0
@@ -36,11 +30,6 @@ export function calculateLeagueAverage(teamScores) {
 
 /**
  * Recalculate standings for all teams in an event from scratch.
- * @param {Array} teams
- * @param {Array} matchupOutcomes - all finalized matchup outcomes
- * @param {Array} leagueAvgOutcomes - all finalized league avg outcomes
- * @param {Array} dailyScores - all finalized daily scores
- * @returns {Array} standings rows ready for upsert
  */
 export function recalculateStandings(teams, matchupOutcomes, leagueAvgOutcomes, dailyScores) {
   const standingsMap = {}
@@ -63,20 +52,16 @@ export function recalculateStandings(teams, matchupOutcomes, leagueAvgOutcomes, 
     }
   })
 
-  // Head-to-head matchup outcomes
   matchupOutcomes.forEach(outcome => {
     if (!outcome.is_calculated) return
-
     const home = standingsMap[outcome.home_team_id]
     const away = standingsMap[outcome.away_team_id]
-
     if (home) {
       home.total_points += outcome.home_points
       if (outcome.home_points === 3) home.wins++
       else if (outcome.home_points === 1) home.losses++
       else home.ties++
     }
-
     if (away) {
       away.total_points += outcome.away_points
       if (outcome.away_points === 3) away.wins++
@@ -85,20 +70,16 @@ export function recalculateStandings(teams, matchupOutcomes, leagueAvgOutcomes, 
     }
   })
 
-  // League average outcomes
   leagueAvgOutcomes.forEach(outcome => {
     if (!outcome.is_calculated) return
-
     const team = standingsMap[outcome.team_id]
     if (!team) return
-
     team.total_points += outcome.team_points
     if (outcome.team_points === 3) team.league_avg_wins++
     else if (outcome.team_points === 1) team.league_avg_losses++
     else team.league_avg_ties++
   })
 
-  // Daily scores for average calculation
   dailyScores.forEach(score => {
     if (!score.is_finalized) return
     const team = standingsMap[score.team_id]
@@ -107,7 +88,6 @@ export function recalculateStandings(teams, matchupOutcomes, leagueAvgOutcomes, 
     team.days_played++
   })
 
-  // Calculate averages
   Object.values(standingsMap).forEach(s => {
     s.avg_daily_score = s.days_played > 0 ? s.total_score / s.days_played : 0
   })
@@ -130,30 +110,21 @@ export function sortStandings(standings) {
 }
 
 /**
- * Generate playoff bracket seedings.
- * All teams seeded by standings sort order.
- * Highest seed vs lowest seed pairing.
- * Top seeds get byes if total teams not power of 2.
- *
- * Returns array of {team1_id, team2_id, is_bye, round_number, match_number}
+ * Generate winner's bracket seedings.
+ * All teams seeded by standings. Highest vs lowest pairing.
+ * Top seeds get byes if not power of 2.
  */
-export function generatePlayoffBracket(sortedTeams, eventId) {
+export function generateWinnersBracket(sortedTeams, eventId) {
   const n = sortedTeams.length
   if (n < 2) return []
 
-  // Find next power of 2
   let bracketSize = 1
   while (bracketSize < n) bracketSize *= 2
 
-  const byeCount = bracketSize - n
+  const seeds = sortedTeams.map((t, i) => ({ ...t, seed: i + 1 }))
   const matches = []
   let matchNumber = 1
 
-  // Seed positions: 1 vs last, 2 vs second-to-last, etc.
-  // Top byeCount seeds get byes in round 1
-  const seeds = sortedTeams.map((t, i) => ({ ...t, seed: i + 1 }))
-
-  // Pair seeds for round 1
   const round1Pairs = []
   for (let i = 0; i < bracketSize / 2; i++) {
     const highSeed = seeds[i] || null
@@ -161,7 +132,6 @@ export function generatePlayoffBracket(sortedTeams, eventId) {
     const lowSeed = seeds[lowSeedIndex] || null
 
     if (highSeed && !lowSeed) {
-      // Bye
       round1Pairs.push({ team1: highSeed, team2: null, is_bye: true })
     } else if (highSeed && lowSeed) {
       round1Pairs.push({ team1: highSeed, team2: lowSeed, is_bye: false })
@@ -171,6 +141,7 @@ export function generatePlayoffBracket(sortedTeams, eventId) {
   round1Pairs.forEach(pair => {
     matches.push({
       event_id: eventId,
+      bracket_type: 'winners',
       round_number: 1,
       match_number: matchNumber++,
       team1_id: pair.team1?.id || null,
@@ -178,10 +149,13 @@ export function generatePlayoffBracket(sortedTeams, eventId) {
       is_bye: pair.is_bye,
       winner_id: pair.is_bye ? pair.team1?.id : null,
       is_finalized: pair.is_bye,
+      series_game: 1,
+      series_wins_team1: 0,
+      series_wins_team2: 0,
     })
   })
 
-  // Generate subsequent rounds (empty slots for winners to advance into)
+  // Generate subsequent rounds
   let roundMatches = round1Pairs.length
   let round = 2
   while (roundMatches > 1) {
@@ -189,6 +163,7 @@ export function generatePlayoffBracket(sortedTeams, eventId) {
     for (let i = 0; i < roundMatches; i++) {
       matches.push({
         event_id: eventId,
+        bracket_type: 'winners',
         round_number: round,
         match_number: matchNumber++,
         team1_id: null,
@@ -196,12 +171,74 @@ export function generatePlayoffBracket(sortedTeams, eventId) {
         is_bye: false,
         winner_id: null,
         is_finalized: false,
+        series_game: 1,
+        series_wins_team1: 0,
+        series_wins_team2: 0,
       })
     }
     round++
   }
 
   return matches
+}
+
+/**
+ * Generate loser's bracket skeleton.
+ * Losers feed in starting at round 2.
+ * Seeded by: round they lost in (later = higher seed), then standings tiebreakers.
+ */
+export function generateLosersBracket(winnersBracketSize, eventId) {
+  // Number of loser's bracket rounds = (winners rounds - 1) * 2 - 1
+  // For a standard double elim loser's bracket
+  const winnersRounds = Math.log2(winnersBracketSize)
+  const matches = []
+  let matchNumber = 1000 // offset to avoid collision with winners bracket match numbers
+
+  // Round 1 of losers: first-round losers from winners bracket
+  // Each subsequent round alternates between: receiving new losers + playing each other
+  let teamsInRound = winnersBracketSize / 2 // losers from winners R1
+
+  for (let round = 1; teamsInRound >= 2; round++) {
+    const matchCount = teamsInRound / 2
+    for (let i = 0; i < matchCount; i++) {
+      matches.push({
+        event_id: eventId,
+        bracket_type: 'losers',
+        round_number: round,
+        match_number: matchNumber++,
+        team1_id: null,
+        team2_id: null,
+        is_bye: false,
+        winner_id: null,
+        is_finalized: false,
+        series_game: 1,
+        series_wins_team1: 0,
+        series_wins_team2: 0,
+      })
+    }
+    // Alternate: odd rounds receive new losers from winners (same count), 
+    // even rounds only have survivors playing each other
+    if (round % 2 === 0) {
+      teamsInRound = matchCount // only survivors continue
+    } else {
+      teamsInRound = matchCount + matchCount // survivors + new losers from next winners round
+      // cap at actual teams remaining
+      if (teamsInRound > winnersBracketSize / 2) teamsInRound = matchCount
+    }
+    if (matchCount <= 1) break
+  }
+
+  return matches
+}
+
+/**
+ * Determine series winner based on format and current wins.
+ */
+export function getSeriesWinner(winsTeam1, winsTeam2, format) {
+  const winsNeeded = format === 'best_of_3' ? 2 : format === 'best_of_5' ? 3 : 1
+  if (winsTeam1 >= winsNeeded) return 'team1'
+  if (winsTeam2 >= winsNeeded) return 'team2'
+  return null
 }
 
 export function formatScore(score) {
@@ -214,4 +251,14 @@ export function getPointLabel(points) {
   if (points === 2) return 'T'
   if (points === 1) return 'L'
   return '—'
+}
+
+export function getRoundName(round, totalRounds, bracketType = 'winners') {
+  if (bracketType === 'losers') return `Losers R${round}`
+  const remaining = totalRounds - round
+  if (remaining === 0) return 'Championship'
+  if (remaining === 1) return 'Finals'
+  if (remaining === 2) return 'Semifinals'
+  if (remaining === 3) return 'Quarterfinals'
+  return `Round ${round}`
 }
