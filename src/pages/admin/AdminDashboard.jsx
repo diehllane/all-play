@@ -94,7 +94,7 @@ export default function AdminDashboard() {
                         </Link>
                       </>
                     )}
-                    <a href={`/event/${event.slug}/standings`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm">
+                    <a href={`/all-play/event/${event.slug}/standings`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm">
                       View Public ↗
                     </a>
                   </div>

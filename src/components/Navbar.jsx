@@ -35,6 +35,7 @@ export default function Navbar({ eventSlug, eventName }) {
           {user ? (
             <>
               <li><Link to="/admin" className={isAdmin ? 'active' : ''}>Dashboard</Link></li>
+              <li><Link to="/admin/change-password" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Change Password</Link></li>
               <li>
                 <button
                   onClick={signOut}

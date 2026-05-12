@@ -87,7 +87,7 @@ export default function EventDetailPage() {
           </div>
           <div className="page-header-actions">
             <Link to={`/admin/event/${id}/score`} className="btn btn-primary">Enter Scores</Link>
-            <a href={`/event/${event.slug}/standings`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
+            <a href={`/all-play/event/${event.slug}/standings`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
               Public View ↗
             </a>
             {isOwner && (
