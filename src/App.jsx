@@ -15,6 +15,7 @@ import EventDetailPage from './pages/admin/EventDetailPage'
 import ScoreEntryPage from './pages/admin/ScoreEntryPage'
 import ManageScorersPage from './pages/admin/ManageScorersPage'
 import ChangePasswordPage from './pages/admin/ChangePasswordPage'
+import ExportPage from './pages/admin/ExportPage'
 
 import './styles/global.css'
 
@@ -42,6 +43,7 @@ function AppRoutes() {
       <Route path="/admin/event/:id/score" element={<ProtectedRoute><ScoreEntryPage /></ProtectedRoute>} />
       <Route path="/admin/event/:id/scorers" element={<ProtectedRoute requiredRole="event_runner"><ManageScorersPage /></ProtectedRoute>} />
       <Route path="/admin/change-password" element={<ProtectedRoute><ChangePasswordPage /></ProtectedRoute>} />
+      <Route path="/admin/event/:id/export" element={<ProtectedRoute><ExportPage /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import Navbar from '../../components/Navbar'
@@ -8,6 +8,7 @@ import { sortStandings, generateWinnersBracket, generateLosersBracket } from '..
 export default function EventDetailPage() {
   const { id } = useParams()
   const { profile } = useAuth()
+  const navigate = useNavigate()
   const [event, setEvent] = useState(null)
   const [divisions, setDivisions] = useState([])
   const [teams, setTeams] = useState([])
@@ -19,6 +20,7 @@ export default function EventDetailPage() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState(null)
   const [revertConfirm, setRevertConfirm] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState(false)
 
   useEffect(() => { fetchAll() }, [id])
 
@@ -47,6 +49,19 @@ export default function EventDetailPage() {
     setSaving(false)
     setRevertConfirm(false)
     setMessage({ type: 'success', text: `Event status updated to "${status}"` })
+  }
+
+  async function deleteEvent() {
+    setSaving(true)
+    try {
+      // Cascade deletes handle child tables via FK constraints
+      const { error } = await supabase.from('events').delete().eq('id', id)
+      if (error) throw error
+      navigate('/admin')
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message })
+      setSaving(false)
+    }
   }
 
   async function generateBracket() {
@@ -104,6 +119,7 @@ export default function EventDetailPage() {
           )}
           <div className="page-header-actions">
             <Link to={`/admin/event/${id}/score`} className="btn btn-primary">Enter Scores</Link>
+            <Link to={`/admin/event/${id}/export`} className="btn btn-secondary">Export XLSX</Link>
             <a href={`/all-play/event/${event.slug}/standings`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
               Public View ↗
             </a>
@@ -283,18 +299,42 @@ export default function EventDetailPage() {
           )}
 
           {activeTab === 'settings' && isOwner && (
-            <div className="card">
-              <div className="card-title">Manual Status Override</div>
-              <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
-                Status changes affect the public scoreboard immediately.
-              </p>
-              <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
-                {['setup', 'active', 'playoffs', 'completed'].map(s => (
-                  <button key={s} className={`btn ${event.status === s ? 'btn-primary' : 'btn-secondary'} btn-sm`}
-                    disabled={saving || event.status === s} onClick={() => updateStatus(s)}>
-                    Set: {s}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              <div className="card">
+                <div className="card-title">Manual Status Override</div>
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+                  Status changes affect the public scoreboard immediately.
+                </p>
+                <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  {['setup', 'active', 'playoffs', 'completed'].map(s => (
+                    <button key={s} className={`btn ${event.status === s ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+                      disabled={saving || event.status === s} onClick={() => updateStatus(s)}>
+                      Set: {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="card" style={{ borderColor: 'rgba(230,57,70,0.3)' }}>
+                <div className="card-title" style={{ color: 'var(--accent-red)' }}>Delete Event</div>
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '1rem' }}>
+                  Permanently deletes this event and all associated data including scores, standings, schedule, and bracket. This cannot be undone.
+                </p>
+                {!deleteConfirm ? (
+                  <button className="btn btn-danger" onClick={() => setDeleteConfirm(true)}>
+                    Delete Event
                   </button>
-                ))}
+                ) : (
+                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.875rem', color: 'var(--accent-red)', fontWeight: 600 }}>
+                      Are you sure? This is permanent.
+                    </span>
+                    <button className="btn btn-danger" disabled={saving} onClick={deleteEvent}>
+                      {saving ? 'Deleting...' : 'Yes, Delete Everything'}
+                    </button>
+                    <button className="btn btn-secondary" onClick={() => setDeleteConfirm(false)}>Cancel</button>
+                  </div>
+                )}
               </div>
             </div>
           )}
