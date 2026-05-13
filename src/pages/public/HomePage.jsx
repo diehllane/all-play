@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
+import Navbar from '../../components/Navbar';
 
 export default function HomePage() {
   const { profile } = useAuth();
@@ -29,7 +30,9 @@ export default function HomePage() {
   const allPlays   = events.filter(e => e.event_type !== 'board_game');
 
   return (
-    <div style={{ padding: 24, maxWidth: 900, margin: '0 auto', color: '#fff' }}>
+    <>
+      <Navbar />
+      <div style={{ padding: 24, maxWidth: 900, margin: '0 auto', color: '#fff' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
         <h2 style={{ margin: 0 }}>PokeNexus Events</h2>
         {profile?.role === 'event_runner' && (
@@ -68,6 +71,7 @@ export default function HomePage() {
         </section>
       )}
     </div>
+    </>
   );
 }
 
