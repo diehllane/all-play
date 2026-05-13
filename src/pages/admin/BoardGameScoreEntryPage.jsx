@@ -73,7 +73,7 @@ export default function BoardGameScoreEntryPage() {
   const loadDayEntries = useCallback(async (day) => {
     const { data } = await supabase
       .from('board_score_entries')
-      .select('*, categories(name, point_value)')
+      .select('*, categories(name, multiplier)')
       .eq('event_id', eventId)
       .eq('day_number', day ?? currentDay)
       .order('created_at');
@@ -112,7 +112,7 @@ export default function BoardGameScoreEntryPage() {
       player_id: selectedPlayer,
       category_id: selectedCategory,
       day_number: currentDay,
-      points: cat.point_value || 0,
+      points: cat.multiplier || 0,
       entered_by: user?.id,
     });
     if (error) {
@@ -278,7 +278,7 @@ export default function BoardGameScoreEntryPage() {
               style={{ width: '100%', padding: '8px 12px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 14 }}>
               <option value="">Select category...</option>
               {categories.map(c => (
-                <option key={c.id} value={c.id}>{c.name} ({c.point_value} pts)</option>
+                <option key={c.id} value={c.id}>{c.name} ({c.multiplier} pts)</option>
               ))}
             </select>
           </div>

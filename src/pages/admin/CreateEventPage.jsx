@@ -36,12 +36,12 @@ export default function CreateEventPage() {
   // ── All-Play fields (unchanged from original) ──────────────
   const [numDivisions, setNumDivisions] = useState(1);
   const [divisions, setDivisions]       = useState([{ name: 'Division 1', teams: [''] }]);
-  const [categories, setCategories]     = useState([{ name: '', point_value: '' }]);
+  const [categories, setCategories]     = useState([{ name: '', multiplier: '' }]);
   const [bracketConfig, setBracketConfig] = useState({ rounds: [] });
 
   // ── Board Game fields ──────────────────────────────────────
   const [bgPlayers, setBgPlayers]       = useState([{ name: '', avatar_url: '' }]);
-  const [bgCategories, setBgCategories] = useState([{ name: '', point_value: '' }]);
+  const [bgCategories, setBgCategories] = useState([{ name: '', multiplier: '' }]);
   const [bgConfig, setBgConfig]         = useState({
     track_length: 252,
     grid_columns: 18,
@@ -95,7 +95,7 @@ export default function CreateEventPage() {
 
       // 3. Categories
       const catInserts = categories.filter(c => c.name.trim()).map(c => ({
-        event_id: ev.id, name: c.name, point_value: parseFloat(c.point_value) || 0,
+        event_id: ev.id, name: c.name, multiplier: parseFloat(c.multiplier) || 1,
       }));
       if (catInserts.length) {
         const { error: cErr } = await supabase.from('categories').insert(catInserts);
@@ -157,7 +157,7 @@ export default function CreateEventPage() {
 
       // 4. Categories (same table as all-play, event-scoped)
       const catInserts = bgCategories.filter(c => c.name.trim()).map(c => ({
-        event_id: ev.id, name: c.name.trim(), point_value: parseFloat(c.point_value) || 0,
+        event_id: ev.id, name: c.name.trim(), multiplier: parseFloat(c.multiplier) || 1,
       }));
       if (catInserts.length) {
         const { error: cErr } = await supabase.from('categories').insert(catInserts);
@@ -295,14 +295,14 @@ export default function CreateEventPage() {
                   <input value={c.name} onChange={e => { const a = [...bgCategories]; a[i].name = e.target.value; setBgCategories(a); }}
                     placeholder="Category name (e.g. Shiny Legend)"
                     style={{ flex: 3, padding: '7px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }} />
-                  <input value={c.point_value} onChange={e => { const a = [...bgCategories]; a[i].point_value = e.target.value; setBgCategories(a); }}
+                  <input value={c.multiplier} onChange={e => { const a = [...bgCategories]; a[i].multiplier = e.target.value; setBgCategories(a); }}
                     placeholder="Points" type="number" min="0"
                     style={{ flex: 1, padding: '7px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }} />
                   <button onClick={() => setBgCategories(bgCategories.filter((_, j) => j !== i))}
                     style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 18 }}>✕</button>
                 </div>
               ))}
-              <button onClick={() => setBgCategories([...bgCategories, { name: '', point_value: '' }])}
+              <button onClick={() => setBgCategories([...bgCategories, { name: '', multiplier: '' }])}
                 style={{ padding: '6px 14px', background: '#2a2a3e', border: '1px solid #444', color: '#fff', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
                 + Add Category
               </button>
@@ -425,14 +425,14 @@ export default function CreateEventPage() {
                   <input value={c.name} onChange={e => { const a=[...categories]; a[i].name=e.target.value; setCategories(a); }}
                     placeholder="Category name"
                     style={{ flex: 3, padding: '7px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }} />
-                  <input value={c.point_value} onChange={e => { const a=[...categories]; a[i].point_value=e.target.value; setCategories(a); }}
+                  <input value={c.multiplier} onChange={e => { const a=[...categories]; a[i].multiplier=e.target.value; setCategories(a); }}
                     placeholder="Points" type="number"
                     style={{ flex: 1, padding: '7px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }} />
                   <button onClick={() => setCategories(categories.filter((_,j)=>j!==i))}
                     style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 18 }}>✕</button>
                 </div>
               ))}
-              <button onClick={() => setCategories([...categories, { name: '', point_value: '' }])}
+              <button onClick={() => setCategories([...categories, { name: '', multiplier: '' }])}
                 style={{ padding: '6px 14px', background: '#2a2a3e', border: '1px solid #444', color: '#fff', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
                 + Add Category
               </button>

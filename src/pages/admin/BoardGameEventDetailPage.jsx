@@ -248,7 +248,7 @@ export default function BoardGameEventDetailPage() {
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {categories.map(c => (
             <span key={c.id} style={{ background: '#13131f', border: '1px solid #333', padding: '4px 10px', borderRadius: 12, fontSize: 12 }}>
-              {c.name} <span style={{ color: '#ffd700' }}>{c.point_value}pts</span>
+              {c.name} <span style={{ color: '#ffd700' }}>{c.multiplier}pts</span>
             </span>
           ))}
         </div>
