@@ -55,7 +55,7 @@ function AppRoutes() {
         <Route path="/admin/events/create" element={
           <ProtectedRoute requiredRole="event_runner"><CreateEventPage /></ProtectedRoute>
         } />
-        <Route path="/admin/change-password" element={
+        <Route path="/change-password" element={
           <ProtectedRoute><ChangePasswordPage /></ProtectedRoute>
         } />
 
