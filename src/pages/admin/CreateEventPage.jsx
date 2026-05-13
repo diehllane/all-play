@@ -129,7 +129,7 @@ export default function CreateEventPage() {
         start_date: startDate || null,
         end_date: endDate || null,
         event_type: 'board_game',
-        division_count: 0,
+        division_count: 1,
         status: 'setup',
         created_by: user?.id,
       }).select().single();
