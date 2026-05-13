@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { buildGrid, squareColor, calcBadges, calcPrizes } from '../../lib/boardgame';
+import Navbar from '../../components/Navbar';
 
 const PLAYER_COLORS = ['#ef5350','#42a5f5','#66bb6a','#ffa726','#ab47bc','#26c6da','#d4e157','#ff7043'];
 
@@ -167,6 +168,7 @@ export default function BoardGamePage() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#0d0d1a', color: '#fff', fontFamily: 'sans-serif' }}>
+      <Navbar />
       {/* Header */}
       <div style={{ background: themeColor, padding: '16px 24px', display: 'flex', alignItems: 'center', gap: 16 }}>
         {config.title_image_url
