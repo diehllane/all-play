@@ -4,6 +4,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { exportBoardGameXLSX } from '../../lib/boardgameExport';
+import Navbar from '../../components/Navbar';
 
 export default function BoardGameEventDetailPage() {
   const { eventId } = useParams();
@@ -99,11 +100,13 @@ export default function BoardGameEventDetailPage() {
     );
   };
 
-  if (loading) return <div className="loading">Loading...</div>;
+  if (loading) return <><Navbar /><div className="loading">Loading...</div></>;
 
   const themeColor = config?.theme_color || '#c62828';
 
   return (
+    <>
+    <Navbar />
     <div style={{ padding: 24, maxWidth: 860, margin: '0 auto', color: '#fff' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
@@ -265,5 +268,6 @@ export default function BoardGameEventDetailPage() {
         </div>
       )}
     </div>
+    </>
   );
 }

@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { calcMoves, resolveMovement } from '../../lib/boardgame';
+import Navbar from '../../components/Navbar';
 
 export default function BoardGameScoreEntryPage() {
   const { eventId } = useParams();
@@ -236,10 +237,12 @@ export default function BoardGameScoreEntryPage() {
     ? resolveMovement(currentPos, previewMoves, squares, config?.track_length || 252).finalPosition
     : null;
 
-  if (loading) return <div className="loading">Loading...</div>;
+  if (loading) return <><Navbar /><div className="loading">Loading...</div></>;
 
   return (
-    <div style={{ padding: 24, maxWidth: 900, margin: '0 auto', color: '#fff' }}>
+    <>
+      <Navbar />
+      <div style={{ padding: 24, maxWidth: 900, margin: '0 auto', color: '#fff' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <h2 style={{ margin: 0 }}>Score Entry — Day {currentDay}</h2>
         <span style={{ fontSize: 13, opacity: 0.6 }}>{event?.name}</span>
@@ -372,5 +375,6 @@ export default function BoardGameScoreEntryPage() {
         </div>
       )}
     </div>
+    </>
   );
 }

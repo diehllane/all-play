@@ -10,6 +10,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import BoardBuilder from '../../components/BoardBuilder';
 import { DEFAULT_BOARD_SQUARES } from '../../lib/boardgame';
+import Navbar from '../../components/Navbar';
 
 // ── All-Play wizard (unchanged logic, re-exported inline) ──
 // Steps 1-5 of the original wizard are preserved below.
@@ -183,7 +184,9 @@ export default function CreateEventPage() {
   // ── Step 0: event type picker ─────────────────────────────
   if (!eventType) {
     return (
-      <div style={{ padding: 40, maxWidth: 600, margin: '0 auto', color: '#fff' }}>
+      <>
+        <Navbar />
+        <div style={{ padding: 40, maxWidth: 600, margin: '0 auto', color: '#fff' }}>
         <h2 style={{ marginBottom: 8 }}>Create New Event</h2>
         <p style={{ opacity: 0.6, marginBottom: 32 }}>What type of event are you running?</p>
         <div style={{ display: 'flex', gap: 20 }}>
@@ -201,6 +204,7 @@ export default function CreateEventPage() {
           />
         </div>
       </div>
+      </>
     );
   }
 
@@ -210,6 +214,8 @@ export default function CreateEventPage() {
   const isLast  = step === totalSteps - 1;
 
   return (
+    <>
+    <Navbar />
     <div style={{ padding: 24, maxWidth: 860, margin: '0 auto', color: '#fff' }}>
       {/* Progress bar */}
       <div style={{ marginBottom: 28 }}>
@@ -481,6 +487,7 @@ export default function CreateEventPage() {
         </div>
       </div>
     </div>
+    </>
   );
 }
 
