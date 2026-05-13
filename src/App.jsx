@@ -4,7 +4,6 @@
 
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import Navbar from './components/Navbar';
 
 // Public pages
 import HomePage        from './pages/public/HomePage';
@@ -36,7 +35,6 @@ function ProtectedRoute({ children, requiredRole }) {
 function AppRoutes() {
   return (
     <>
-      <Navbar />
       <Routes>
         {/* ── Public ────────────────────────────────────────── */}
         <Route path="/"                               element={<HomePage />} />
