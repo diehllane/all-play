@@ -66,9 +66,11 @@ export default function CreateEventPage() {
     setSaving(true);
     setError(null);
     try {
+      const slug = eventName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now();
       // 1. Create event
       const { data: ev, error: evErr } = await supabase.from('events').insert({
         name: eventName,
+        slug,
         start_date: startDate || null,
         end_date: endDate || null,
         event_type: 'all_play',
@@ -117,9 +119,11 @@ export default function CreateEventPage() {
     setSaving(true);
     setError(null);
     try {
+      const slug = eventName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now();
       // 1. Create event
       const { data: ev, error: evErr } = await supabase.from('events').insert({
         name: eventName,
+        slug,
         start_date: startDate || null,
         end_date: endDate || null,
         event_type: 'board_game',
