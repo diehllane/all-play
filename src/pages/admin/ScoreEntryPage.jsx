@@ -109,20 +109,31 @@ export default function ScoreEntryPage() {
       // Advance winner to next round if match is finalized
       if (isFinalized && winnerId) {
         const nextRound = selectedMatch.round_number + 1
-        const nextRoundMatches = bracket
-          .filter(m => m.bracket_type === selectedMatch.bracket_type && m.round_number === nextRound)
-          .sort((a, b) => a.match_number - b.match_number)
 
-        if (nextRoundMatches.length > 0) {
-          // Use ALL matches in current round (including byes) to get correct index
-          const currentRoundMatches = bracket
-            .filter(m => m.bracket_type === selectedMatch.bracket_type && m.round_number === selectedMatch.round_number)
-            .sort((a, b) => a.match_number - b.match_number)
-          const matchIndex = currentRoundMatches.findIndex(m => m.id === selectedMatch.id)
+        // Fetch ALL current round matches fresh from DB to get correct index
+        const { data: currentRoundFresh } = await supabase
+          .from('playoff_bracket')
+          .select('*')
+          .eq('event_id', id)
+          .eq('bracket_type', selectedMatch.bracket_type)
+          .eq('round_number', selectedMatch.round_number)
+          .order('match_number')
+
+        const { data: nextRoundFresh } = await supabase
+          .from('playoff_bracket')
+          .select('*')
+          .eq('event_id', id)
+          .eq('bracket_type', selectedMatch.bracket_type)
+          .eq('round_number', nextRound)
+          .order('match_number')
+
+        if (currentRoundFresh && nextRoundFresh && nextRoundFresh.length > 0) {
+          const matchIndex = currentRoundFresh.findIndex(m => m.id === selectedMatch.id)
           const nextMatchIndex = Math.floor(matchIndex / 2)
-          const nextMatch = nextRoundMatches[nextMatchIndex]
+          const nextMatch = nextRoundFresh[nextMatchIndex]
 
           if (nextMatch) {
+            // Use fresh DB data to determine correct slot
             const updateField = !nextMatch.team1_id ? 'team1_id' : 'team2_id'
             await supabase.from('playoff_bracket')
               .update({ [updateField]: winnerId })
