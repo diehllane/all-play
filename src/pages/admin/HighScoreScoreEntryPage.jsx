@@ -235,13 +235,22 @@ export default function HighScoreScoreEntryPage() {
         <select value={selectedPlayer} onChange={e => setSelectedPlayer(e.target.value)} style={s.select}>
           <option value="">— Select Player —</option>
           {isTeamMode
-            ? teams.map(t => (
-                <optgroup key={t.id} label={t.name}>
-                  {players.filter(p => p.team_id === t.id).map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </optgroup>
-              ))
+            ? [
+                ...teams.map(t => (
+                  <optgroup key={t.id} label={t.name}>
+                    {players.filter(p => p.team_id === t.id).map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </optgroup>
+                )),
+                players.filter(p => !p.team_id).length > 0 && (
+                  <optgroup key="unassigned" label="— No Team —">
+                    {players.filter(p => !p.team_id).map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </optgroup>
+                ),
+              ]
             : players.map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))
