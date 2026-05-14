@@ -183,23 +183,44 @@ export function generateWinnersBracket(sortedTeams, eventId) {
 }
 
 /**
- * Generate loser's bracket skeleton.
- * Losers feed in starting at round 2.
- * Seeded by: round they lost in (later = higher seed), then standings tiebreakers.
+ * Generate loser's bracket skeleton based on actual team count.
+ * Only real (non-bye) W-R1 matches produce losers.
+ * @param {number} actualTeamCount - real number of teams
+ * @param {string} eventId
+ * @param {Array} winnersBracket - the generated winner's bracket matches
  */
-export function generateLosersBracket(winnersBracketSize, eventId) {
-  // Number of loser's bracket rounds = (winners rounds - 1) * 2 - 1
-  // For a standard double elim loser's bracket
-  const winnersRounds = Math.log2(winnersBracketSize)
+export function generateLosersBracket(actualTeamCount, eventId, winnersBracket = []) {
   const matches = []
-  let matchNumber = 1000 // offset to avoid collision with winners bracket match numbers
+  let matchNumber = 1000
 
-  // Round 1 of losers: first-round losers from winners bracket
-  // Each subsequent round alternates between: receiving new losers + playing each other
-  let teamsInRound = winnersBracketSize / 2 // losers from winners R1
+  // Count real (non-bye) matches in W-R1 — these produce the initial losers
+  const realR1Matches = winnersBracket.filter(m => m.round_number === 1 && !m.is_bye)
+  const initialLosers = realR1Matches.length // one loser per real R1 match
 
-  for (let round = 1; teamsInRound >= 2; round++) {
-    const matchCount = teamsInRound / 2
+  if (initialLosers === 0) return [] // no losers bracket needed
+
+  // How many winners bracket rounds exist (excluding R1)?
+  const maxWinnersRound = winnersBracket.reduce((max, m) => Math.max(max, m.round_number), 0)
+
+  // Loser's bracket structure:
+  // - L-R1: initialLosers teams play (if ≥2), or wait for more to arrive
+  // - Each winners bracket round (R2, R3...) drops new losers into the losers bracket
+  // - Losers bracket alternates: receive new losers → internal play → receive → internal → ...
+
+  let currentLosers = initialLosers
+  let round = 1
+
+  // If only 1 initial loser, they wait — losers bracket starts when W-R2 produces a loser
+  if (initialLosers < 2) {
+    // Start with W-R2 losers arriving — now 2 teams (1 initial + 1 from W-R2)
+    currentLosers = 2
+    // Don't generate a standalone L-R1, the first match is when 2 losers can play
+  }
+
+  // Generate rounds until only 1 team remains
+  let winnersRoundDropping = 2 // W-R2 losers drop into L first
+  while (currentLosers >= 2) {
+    const matchCount = Math.floor(currentLosers / 2)
     for (let i = 0; i < matchCount; i++) {
       matches.push({
         event_id: eventId,
@@ -216,16 +237,17 @@ export function generateLosersBracket(winnersBracketSize, eventId) {
         series_wins_team2: 0,
       })
     }
-    // Alternate: odd rounds receive new losers from winners (same count), 
-    // even rounds only have survivors playing each other
-    if (round % 2 === 0) {
-      teamsInRound = matchCount // only survivors continue
-    } else {
-      teamsInRound = matchCount + matchCount // survivors + new losers from next winners round
-      // cap at actual teams remaining
-      if (teamsInRound > winnersBracketSize / 2) teamsInRound = matchCount
-    }
-    if (matchCount <= 1) break
+
+    const survivors = matchCount
+    round++
+    winnersRoundDropping++
+
+    // Next round: survivors + new losers from next winners round (if any)
+    const newLosers = winnersRoundDropping <= maxWinnersRound ? 1 : 0
+    currentLosers = survivors + newLosers
+
+    // Safety: don't generate too many rounds
+    if (round > 20) break
   }
 
   return matches
