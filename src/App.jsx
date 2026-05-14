@@ -1,102 +1,80 @@
 // src/App.jsx
-// Replaces the existing App.jsx.
-// Adds board game routes alongside all existing all-play routes.
-
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { AuthProvider } from './contexts/AuthContext';
+import Navbar from './components/Navbar';
+import ProtectedRoute from './components/ProtectedRoute';
 
 // Public pages
-import HomePage        from './pages/public/HomePage';
-import StandingsPage   from './pages/public/StandingsPage';
-import SchedulePage    from './pages/public/SchedulePage';
-import BracketPage     from './pages/public/BracketPage';
-import BoardGamePage   from './pages/public/BoardGamePage';
+import HomePage from './pages/public/HomePage';
+import StandingsPage from './pages/public/StandingsPage';
+import SchedulePage from './pages/public/SchedulePage';
+import BracketPage from './pages/public/BracketPage';
+import BoardGamePage from './pages/public/BoardGamePage';
+import HighScorePage from './pages/public/HighScorePage';
 
 // Admin pages
-import LoginPage                  from './pages/admin/LoginPage';
-import AdminDashboard             from './pages/admin/AdminDashboard';
-import CreateEventPage            from './pages/admin/CreateEventPage';
-import EventDetailPage            from './pages/admin/EventDetailPage';
-import ScoreEntryPage             from './pages/admin/ScoreEntryPage';
-import ManageScorersPage          from './pages/admin/ManageScorersPage';
-import ChangePasswordPage         from './pages/admin/ChangePasswordPage';
-import ExportPage                 from './pages/admin/ExportPage';
-import BoardGameEventDetailPage   from './pages/admin/BoardGameEventDetailPage';
-import BoardGameScoreEntryPage    from './pages/admin/BoardGameScoreEntryPage';
-import BoardGameEditPage          from './pages/admin/BoardGameEditPage';
+import LoginPage from './pages/admin/LoginPage';
+import AdminDashboard from './pages/admin/AdminDashboard';
+import CreateEventPage from './pages/admin/CreateEventPage';
+import EventDetailPage from './pages/admin/EventDetailPage';
+import ScoreEntryPage from './pages/admin/ScoreEntryPage';
+import ManageScorersPage from './pages/admin/ManageScorersPage';
+import ChangePasswordPage from './pages/admin/ChangePasswordPage';
+import ExportPage from './pages/admin/ExportPage';
+import BoardGameEventDetailPage from './pages/admin/BoardGameEventDetailPage';
+import BoardGameScoreEntryPage from './pages/admin/BoardGameScoreEntryPage';
+import BoardGameEditPage from './pages/admin/BoardGameEditPage';
+import HighScoreEventDetailPage from './pages/admin/HighScoreEventDetailPage';
+import HighScoreScoreEntryPage from './pages/admin/HighScoreScoreEntryPage';
 
-function ProtectedRoute({ children, requiredRole }) {
-  const { user, profile, loading } = useAuth();
-  if (loading) return <div className="loading">Loading...</div>;
-  if (!user) return <Navigate to="/login" replace />;
-  if (requiredRole && profile?.role !== requiredRole) return <Navigate to="/" replace />;
-  return children;
-}
-
-function AppRoutes() {
-  return (
-    <>
-      <Routes>
-        {/* ── Public ────────────────────────────────────────── */}
-        <Route path="/"                               element={<HomePage />} />
-        <Route path="/events/:slug/standings"      element={<StandingsPage />} />
-        <Route path="/events/:slug/schedule"       element={<SchedulePage />} />
-        <Route path="/events/:slug/bracket"        element={<BracketPage />} />
-
-        {/* Board game public board */}
-        <Route path="/board/:eventId"                 element={<BoardGamePage />} />
-
-        {/* ── Auth ──────────────────────────────────────────── */}
-        <Route path="/login"                          element={<LoginPage />} />
-
-        {/* ── Admin: shared ─────────────────────────────────── */}
-        <Route path="/admin" element={
-          <ProtectedRoute><AdminDashboard /></ProtectedRoute>
-        } />
-        <Route path="/admin/events/create" element={
-          <ProtectedRoute requiredRole="event_runner"><CreateEventPage /></ProtectedRoute>
-        } />
-        <Route path="/change-password" element={
-          <ProtectedRoute><ChangePasswordPage /></ProtectedRoute>
-        } />
-
-        {/* ── Admin: All-Play event management ──────────────── */}
-        <Route path="/admin/events/:id" element={
-          <ProtectedRoute requiredRole="event_runner"><EventDetailPage /></ProtectedRoute>
-        } />
-        <Route path="/admin/events/:id/scores" element={
-          <ProtectedRoute><ScoreEntryPage /></ProtectedRoute>
-        } />
-        <Route path="/admin/events/:id/scorers" element={
-          <ProtectedRoute requiredRole="event_runner"><ManageScorersPage /></ProtectedRoute>
-        } />
-        <Route path="/admin/events/:id/export" element={
-          <ProtectedRoute requiredRole="event_runner"><ExportPage /></ProtectedRoute>
-        } />
-
-        {/* ── Admin: Board Game event management ────────────── */}
-        <Route path="/admin/board/:eventId" element={
-          <ProtectedRoute requiredRole="event_runner"><BoardGameEventDetailPage /></ProtectedRoute>
-        } />
-        <Route path="/admin/board/:eventId/scores" element={
-          <ProtectedRoute><BoardGameScoreEntryPage /></ProtectedRoute>
-        } />
-        <Route path="/admin/board/:eventId/edit" element={
-          <ProtectedRoute requiredRole="event_runner"><BoardGameEditPage /></ProtectedRoute>
-        } />
-
-        {/* Fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </>
-  );
-}
+const BASE = '/all-play';
 
 export default function App() {
   return (
-    <BrowserRouter basename="/all-play">
+    <BrowserRouter basename={BASE}>
       <AuthProvider>
-        <AppRoutes />
+        <Navbar />
+        <Routes>
+          {/* ── Public ── */}
+          <Route path="/" element={<HomePage />} />
+
+          {/* All-Play public */}
+          <Route path="/events/:slug/standings" element={<StandingsPage />} />
+          <Route path="/events/:slug/schedule" element={<SchedulePage />} />
+          <Route path="/events/:slug/bracket" element={<BracketPage />} />
+
+          {/* Board Game public */}
+          <Route path="/board/:eventId" element={<BoardGamePage />} />
+
+          {/* High Score public */}
+          <Route path="/highscore/:id" element={<HighScorePage />} />
+
+          {/* ── Auth ── */}
+          <Route path="/login" element={<LoginPage />} />
+
+          {/* ── Admin (protected) ── */}
+          <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
+          <Route path="/admin/events/create" element={<ProtectedRoute><CreateEventPage /></ProtectedRoute>} />
+          <Route path="/admin/change-password" element={<ProtectedRoute><ChangePasswordPage /></ProtectedRoute>} />
+
+          {/* All-Play admin */}
+          <Route path="/admin/events/:id" element={<ProtectedRoute><EventDetailPage /></ProtectedRoute>} />
+          <Route path="/admin/events/:id/scores" element={<ProtectedRoute><ScoreEntryPage /></ProtectedRoute>} />
+          <Route path="/admin/events/:id/scorers" element={<ProtectedRoute><ManageScorersPage /></ProtectedRoute>} />
+          <Route path="/admin/events/:id/export" element={<ProtectedRoute><ExportPage /></ProtectedRoute>} />
+
+          {/* Board Game admin */}
+          <Route path="/admin/board/:eventId" element={<ProtectedRoute><BoardGameEventDetailPage /></ProtectedRoute>} />
+          <Route path="/admin/board/:eventId/scores" element={<ProtectedRoute><BoardGameScoreEntryPage /></ProtectedRoute>} />
+          <Route path="/admin/board/:eventId/edit" element={<ProtectedRoute><BoardGameEditPage /></ProtectedRoute>} />
+
+          {/* High Score admin */}
+          <Route path="/admin/highscore/:id" element={<ProtectedRoute><HighScoreEventDetailPage /></ProtectedRoute>} />
+          <Route path="/admin/highscore/:id/scores" element={<ProtectedRoute><HighScoreScoreEntryPage /></ProtectedRoute>} />
+
+          {/* Fallback */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </AuthProvider>
     </BrowserRouter>
   );
