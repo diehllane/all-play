@@ -141,7 +141,7 @@ export default function EventDetailPage() {
       // Bracket size is next power of 2 from team count
       let bracketSize = 1
       while (bracketSize < sorted.length) bracketSize *= 2
-      const losersBracket = generateLosersBracket(bracketSize, id)
+      const losersBracket = generateLosersBracket(sorted.length, id, winnersBracket)
 
       const allMatches = [...winnersBracket, ...losersBracket]
 

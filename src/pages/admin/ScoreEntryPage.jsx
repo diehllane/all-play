@@ -108,6 +108,7 @@ export default function ScoreEntryPage() {
 
       // Advance winner to next round if match is finalized
       if (isFinalized && winnerId) {
+        const loserId = winnerId === selectedMatch.team1_id ? selectedMatch.team2_id : selectedMatch.team1_id
         const nextRound = selectedMatch.round_number + 1
 
         // Fetch ALL current round matches fresh from DB to get correct index
@@ -133,11 +134,31 @@ export default function ScoreEntryPage() {
           const nextMatch = nextRoundFresh[nextMatchIndex]
 
           if (nextMatch) {
-            // Use fresh DB data to determine correct slot
             const updateField = !nextMatch.team1_id ? 'team1_id' : 'team2_id'
             await supabase.from('playoff_bracket')
               .update({ [updateField]: winnerId })
               .eq('id', nextMatch.id)
+          }
+        }
+
+        // Advance loser into losers bracket (winners bracket matches only)
+        if (selectedMatch.bracket_type === 'winners' && loserId) {
+          const { data: loserMatches } = await supabase
+            .from('playoff_bracket')
+            .select('*')
+            .eq('event_id', id)
+            .eq('bracket_type', 'losers')
+            .is('winner_id', null)
+            .order('round_number')
+            .order('match_number')
+
+          // Find first loser's bracket match with an open slot
+          const openMatch = (loserMatches || []).find(m => !m.team1_id || !m.team2_id)
+          if (openMatch) {
+            const slot = !openMatch.team1_id ? 'team1_id' : 'team2_id'
+            await supabase.from('playoff_bracket')
+              .update({ [slot]: loserId })
+              .eq('id', openMatch.id)
           }
         }
       }
