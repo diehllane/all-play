@@ -81,12 +81,19 @@ export default function CreateEventPage() {
       if (evErr) throw evErr;
 
       // 2. Divisions + teams
-      for (const div of divisions) {
+      for (const [divIndex, div] of divisions.entries()) {
         const { data: divData, error: divErr } = await supabase.from('divisions').insert({
-          event_id: ev.id, name: div.name,
+          event_id: ev.id,
+          name: div.name,
+          division_number: divIndex + 1,
         }).select().single();
         if (divErr) throw divErr;
-        const teamInserts = div.teams.filter(t => t.trim()).map(name => ({ event_id: ev.id, division_id: divData.id, name }));
+        const teamInserts = div.teams.filter(t => t.trim()).map((name, teamIndex) => ({
+          event_id: ev.id,
+          division_id: divData.id,
+          name,
+          team_number: teamIndex + 1,
+        }));
         if (teamInserts.length) {
           const { error: tErr } = await supabase.from('teams').insert(teamInserts);
           if (tErr) throw tErr;
