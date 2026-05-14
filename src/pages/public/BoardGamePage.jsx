@@ -2,34 +2,35 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { buildGrid, squareColor, calcBadges, calcPrizes } from '../../lib/boardgame';
+import { buildGrid, squareColor, calcBadges } from '../../lib/boardgame';
 import Navbar from '../../components/Navbar';
 
 const PLAYER_COLORS = ['#ef5350','#42a5f5','#66bb6a','#ffa726','#ab47bc','#26c6da','#d4e157','#ff7043'];
 
 export default function BoardGamePage() {
   const { eventId } = useParams();
-  const [event, setEvent]       = useState(null);
-  const [config, setConfig]     = useState(null);
-  const [squares, setSquares]   = useState([]);
-  const [players, setPlayers]   = useState([]);
+  const [event, setEvent]         = useState(null);
+  const [config, setConfig]       = useState(null);
+  const [squares, setSquares]     = useState([]);
+  const [players, setPlayers]     = useState([]);
   const [positions, setPositions] = useState({});
-  const [categories, setCategories] = useState([]);
-  const [todayEntries, setTodayEntries] = useState([]);
+  const [prizesEarned, setPrizesEarned] = useState([]); // from board_prizes_earned
+  const [todayEntries, setTodayEntries] = useState({});
+  const [allScoreEntries, setAllScoreEntries] = useState([]); // for daily scores table
   const [selectedSquare, setSelectedSquare] = useState(null);
-  const [tileSize, setTileSize] = useState(56);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState(null);
+  const [tileSize, setTileSize]   = useState(56);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState(null);
 
   const load = useCallback(async () => {
     try {
-      const [evRes, cfgRes, sqRes, plRes, posRes, catRes] = await Promise.all([
+      const [evRes, cfgRes, sqRes, plRes, posRes, prizeRes] = await Promise.all([
         supabase.from('events').select('*').eq('id', eventId).single(),
         supabase.from('board_game_config').select('*').eq('event_id', eventId).single(),
         supabase.from('board_squares').select('*').eq('event_id', eventId).order('square_number'),
         supabase.from('board_players').select('*').eq('event_id', eventId).order('sort_order'),
         supabase.from('board_player_positions').select('*').eq('event_id', eventId),
-        supabase.from('categories').select('*').eq('event_id', eventId),
+        supabase.from('board_prizes_earned').select('*').eq('event_id', eventId),
       ]);
       if (evRes.error) throw evRes.error;
       setEvent(evRes.data);
@@ -39,7 +40,7 @@ export default function BoardGamePage() {
       const posMap = {};
       (posRes.data || []).forEach(p => { posMap[p.player_id] = p.position; });
       setPositions(posMap);
-      setCategories(catRes.data || []);
+      setPrizesEarned(prizeRes.data || []);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -47,8 +48,8 @@ export default function BoardGamePage() {
     }
   }, [eventId]);
 
-  // Load today's entries for the "today's activity" strip
-  const loadTodayEntries = useCallback(async () => {
+  // Load today's uncommitted entries + all committed score entries for daily table
+  const loadEntries = useCallback(async () => {
     const { data: commits } = await supabase
       .from('board_commits')
       .select('day_number')
@@ -58,21 +59,30 @@ export default function BoardGamePage() {
       .limit(1);
     const lastDay = commits?.[0]?.day_number ?? 0;
     const nextDay = lastDay + 1;
-    const { data } = await supabase
+
+    // Today's uncommitted entries for sidebar preview
+    const { data: todayData } = await supabase
       .from('board_score_entries')
       .select('player_id, points')
       .eq('event_id', eventId)
       .eq('day_number', nextDay);
-    // Sum by player
     const sums = {};
-    (data || []).forEach(e => { sums[e.player_id] = (sums[e.player_id] || 0) + e.points; });
+    (todayData || []).forEach(e => { sums[e.player_id] = (sums[e.player_id] || 0) + e.points; });
     setTodayEntries(sums);
+
+    // All committed score entries for daily scores table
+    const { data: allData } = await supabase
+      .from('board_score_entries')
+      .select('player_id, day_number, points')
+      .eq('event_id', eventId)
+      .lte('day_number', lastDay);
+    setAllScoreEntries(allData || []);
   }, [eventId]);
 
   useEffect(() => {
     load();
-    loadTodayEntries();
-  }, [load, loadTodayEntries]);
+    loadEntries();
+  }, [load, loadEntries]);
 
   // Realtime subscription for live position + entry updates
   useEffect(() => {
@@ -89,14 +99,23 @@ export default function BoardGamePage() {
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'board_score_entries',
         filter: `event_id=eq.${eventId}`
-      }, () => loadTodayEntries())
+      }, () => loadEntries())
+      .subscribe();
+
+    const prizeChannel = supabase
+      .channel('board_prizes_' + eventId)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'board_prizes_earned',
+        filter: `event_id=eq.${eventId}`
+      }, () => load())
       .subscribe();
 
     return () => {
       supabase.removeChannel(posChannel);
       supabase.removeChannel(entryChannel);
+      supabase.removeChannel(prizeChannel);
     };
-  }, [eventId, load, loadTodayEntries]);
+  }, [eventId, load, loadEntries]);
 
   if (loading) return <div className="loading">Loading board...</div>;
   if (error) return <div className="error">Error: {error}</div>;
@@ -158,13 +177,6 @@ export default function BoardGamePage() {
     if (badgesB !== badgesA) return badgesB - badgesA;
     return posB - posA;
   });
-
-  const prizeSummary = squares
-    .filter(s => s.type === 'prize')
-    .map(prize => ({
-      prize,
-      earnedBy: players.filter(p => (positions[p.id] || 0) >= prize.square_number),
-    }));
 
   return (
     <div style={{ minHeight: '100vh', background: '#0d0d1a', color: '#fff', fontFamily: 'sans-serif' }}>
@@ -264,35 +276,119 @@ export default function BoardGamePage() {
             </div>
           )}
 
-          {/* Prize Tracker */}
-          {prizeSummary.length > 0 && (
-            <div style={{ marginTop: 24 }}>
-              <h3 style={{ color: themeColor, marginBottom: 12 }}>🎁 Prizes Owed</h3>
-              <table style={{ borderCollapse: 'collapse', width: '100%', maxWidth: 600 }}>
-                <thead>
-                  <tr>
-                    {['Square','Prize','Players Earned'].map(h => (
-                      <th key={h} style={{ textAlign: 'left', padding: '6px 12px', borderBottom: '1px solid #333', fontSize: 12, opacity: 0.7 }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {prizeSummary.map(({ prize, earnedBy }) => (
-                    <tr key={prize.id}>
-                      <td style={{ padding: '6px 12px', fontSize: 13 }}>{prize.square_number}</td>
-                      <td style={{ padding: '6px 12px', fontSize: 13 }}>{prize.icon} {prize.label}</td>
-                      <td style={{ padding: '6px 12px', fontSize: 13 }}>
-                        {earnedBy.length === 0
-                          ? <span style={{ opacity: 0.4 }}>None yet</span>
-                          : earnedBy.map(p => p.name).join(', ')
-                        }
-                      </td>
+          {/* Prize Tracker — driven from board_prizes_earned */}
+          {(() => {
+            const prizeSquares = squares.filter(s => s.type === 'prize');
+            if (prizeSquares.length === 0) return null;
+            return (
+              <div style={{ marginTop: 24 }}>
+                <h3 style={{ color: themeColor, marginBottom: 12 }}>🎁 Prizes Owed</h3>
+                <table style={{ borderCollapse: 'collapse', width: '100%', maxWidth: 600 }}>
+                  <thead>
+                    <tr>
+                      {['Square','Prize','Earned By'].map(h => (
+                        <th key={h} style={{ textAlign: 'left', padding: '6px 12px', borderBottom: '1px solid #333', fontSize: 12, opacity: 0.7 }}>{h}</th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody>
+                    {prizeSquares.map(prize => {
+                      const earnedByIds = prizesEarned
+                        .filter(pe => pe.square_number === prize.square_number)
+                        .map(pe => pe.player_id);
+                      const earnedByNames = players
+                        .filter(p => earnedByIds.includes(p.id))
+                        .map(p => p.name);
+                      return (
+                        <tr key={prize.id || prize.square_number}>
+                          <td style={{ padding: '6px 12px', fontSize: 13 }}>{prize.square_number}</td>
+                          <td style={{ padding: '6px 12px', fontSize: 13 }}>{prize.icon} {prize.label}</td>
+                          <td style={{ padding: '6px 12px', fontSize: 13 }}>
+                            {earnedByNames.length === 0
+                              ? <span style={{ opacity: 0.4 }}>None yet</span>
+                              : earnedByNames.map((name, i) => (
+                                <span key={i} style={{ background: '#1a3a1a', color: '#81c784', padding: '1px 8px', borderRadius: 10, fontSize: 12, marginRight: 4 }}>
+                                  {name}
+                                </span>
+                              ))
+                            }
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+
+          {/* Player Scores By Day */}
+          {allScoreEntries.length > 0 && (() => {
+            const days = [...new Set(allScoreEntries.map(e => e.day_number))].sort((a, b) => a - b);
+            // Build per-player per-day totals
+            const playerDayTotals = {};
+            players.forEach(p => { playerDayTotals[p.id] = {}; });
+            allScoreEntries.forEach(e => {
+              if (!playerDayTotals[e.player_id]) return;
+              playerDayTotals[e.player_id][e.day_number] =
+                (playerDayTotals[e.player_id][e.day_number] || 0) + e.points;
+            });
+            const sortedPlayers = [...players].sort((a, b) => {
+              const totA = Object.values(playerDayTotals[a.id] || {}).reduce((s, v) => s + v, 0);
+              const totB = Object.values(playerDayTotals[b.id] || {}).reduce((s, v) => s + v, 0);
+              return totB - totA;
+            });
+            return (
+              <div style={{ marginTop: 32 }}>
+                <h3 style={{ color: themeColor, marginBottom: 12 }}>📊 Player Scores By Day</h3>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ borderCollapse: 'collapse', fontSize: 13, minWidth: 400 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ textAlign: 'left', padding: '6px 12px', borderBottom: '1px solid #333', opacity: 0.7, fontWeight: 400 }}>Player</th>
+                        {days.map(d => (
+                          <th key={d} style={{ textAlign: 'right', padding: '6px 12px', borderBottom: '1px solid #333', opacity: 0.7, fontWeight: 400, whiteSpace: 'nowrap' }}>
+                            Day {d}
+                          </th>
+                        ))}
+                        <th style={{ textAlign: 'right', padding: '6px 12px', borderBottom: '1px solid #333', fontWeight: 700 }}>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedPlayers.map((p, i) => {
+                        const dayMap = playerDayTotals[p.id] || {};
+                        const total = Object.values(dayMap).reduce((s, v) => s + v, 0);
+                        return (
+                          <tr key={p.id} style={{ borderBottom: '1px solid #1a1a2e' }}>
+                            <td style={{ padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{
+                                width: 20, height: 20, borderRadius: '50%',
+                                background: PLAYER_COLORS[i % PLAYER_COLORS.length],
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 10, fontWeight: 700, flexShrink: 0
+                              }}>
+                                {p.avatar_url
+                                  ? <img src={p.avatar_url} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} alt="" />
+                                  : p.name.charAt(0)
+                                }
+                              </div>
+                              {p.name}
+                            </td>
+                            {days.map(d => (
+                              <td key={d} style={{ padding: '6px 12px', textAlign: 'right', opacity: dayMap[d] ? 1 : 0.3 }}>
+                                {dayMap[d] || 0}
+                              </td>
+                            ))}
+                            <td style={{ padding: '6px 12px', textAlign: 'right', fontWeight: 700, color: '#ffd700' }}>{total}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Sidebar */}
