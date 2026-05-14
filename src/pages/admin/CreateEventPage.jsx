@@ -476,7 +476,6 @@ export default function CreateEventPage() {
                       <option value="single">Single Game</option>
                       <option value="best_of_3">Best of 3</option>
                       <option value="best_of_5">Best of 5</option>
-                      <option value="aggregate">Aggregate Score</option>
                     </select>
                   </div>
                 );

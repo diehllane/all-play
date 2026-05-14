@@ -108,24 +108,21 @@ export default function ScoreEntryPage() {
 
       // Advance winner to next round if match is finalized
       if (isFinalized && winnerId) {
-        // Find next round matches of same bracket type
         const nextRound = selectedMatch.round_number + 1
         const nextRoundMatches = bracket
-          .filter(m => m.bracket_type === selectedMatch.bracket_type && m.round_number === nextRound && !m.is_bye)
+          .filter(m => m.bracket_type === selectedMatch.bracket_type && m.round_number === nextRound)
           .sort((a, b) => a.match_number - b.match_number)
 
         if (nextRoundMatches.length > 0) {
-          // Determine which next-round match this winner feeds into
-          // Pair matches: match 1&2 → next match 1, match 3&4 → next match 2, etc.
+          // Use ALL matches in current round (including byes) to get correct index
           const currentRoundMatches = bracket
-            .filter(m => m.bracket_type === selectedMatch.bracket_type && m.round_number === selectedMatch.round_number && !m.is_bye)
+            .filter(m => m.bracket_type === selectedMatch.bracket_type && m.round_number === selectedMatch.round_number)
             .sort((a, b) => a.match_number - b.match_number)
           const matchIndex = currentRoundMatches.findIndex(m => m.id === selectedMatch.id)
           const nextMatchIndex = Math.floor(matchIndex / 2)
           const nextMatch = nextRoundMatches[nextMatchIndex]
 
           if (nextMatch) {
-            // Fill team1_id if empty, otherwise team2_id
             const updateField = !nextMatch.team1_id ? 'team1_id' : 'team2_id'
             await supabase.from('playoff_bracket')
               .update({ [updateField]: winnerId })
