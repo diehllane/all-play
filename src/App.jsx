@@ -39,9 +39,9 @@ function AppRoutes() {
       <Routes>
         {/* ── Public ────────────────────────────────────────── */}
         <Route path="/"                               element={<HomePage />} />
-        <Route path="/events/:id/standings"      element={<StandingsPage />} />
-        <Route path="/events/:id/schedule"       element={<SchedulePage />} />
-        <Route path="/events/:id/bracket"        element={<BracketPage />} />
+        <Route path="/events/:slug/standings"      element={<StandingsPage />} />
+        <Route path="/events/:slug/schedule"       element={<SchedulePage />} />
+        <Route path="/events/:slug/bracket"        element={<BracketPage />} />
 
         {/* Board game public board */}
         <Route path="/board/:eventId"                 element={<BoardGamePage />} />
