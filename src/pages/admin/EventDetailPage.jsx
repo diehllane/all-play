@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import Navbar from '../../components/Navbar'
 import { sortStandings, generateWinnersBracket, generateLosersBracket } from '../../lib/scoring'
+import { buildScheduleRows } from '../../lib/schedule'
 
 export default function EventDetailPage() {
   const { id } = useParams()
@@ -15,6 +16,7 @@ export default function EventDetailPage() {
   const [categories, setCategories] = useState([])
   const [standings, setStandings] = useState([])
   const [bracketConfig, setBracketConfig] = useState([])
+  const [schedule, setSchedule] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('overview')
   const [saving, setSaving] = useState(false)
@@ -25,13 +27,14 @@ export default function EventDetailPage() {
   useEffect(() => { fetchAll() }, [id])
 
   async function fetchAll() {
-    const [{ data: ev }, { data: divs }, { data: teamsData }, { data: cats }, { data: stands }, { data: bConfig }] = await Promise.all([
+    const [{ data: ev }, { data: divs }, { data: teamsData }, { data: cats }, { data: stands }, { data: bConfig }, { data: sched }] = await Promise.all([
       supabase.from('events').select('*').eq('id', id).single(),
       supabase.from('divisions').select('*').eq('event_id', id).order('division_number'),
       supabase.from('teams').select('*').eq('event_id', id).order('team_number'),
       supabase.from('categories').select('*').eq('event_id', id).order('display_order'),
       supabase.from('standings').select('*').eq('event_id', id),
-      supabase.from('bracket_round_config').select('*').eq('event_id', id).order('bracket_type').order('round_number')
+      supabase.from('bracket_round_config').select('*').eq('event_id', id).order('bracket_type').order('round_number'),
+      supabase.from('schedule').select('*').eq('event_id', id),
     ])
     setEvent(ev)
     setDivisions(divs || [])
@@ -39,7 +42,39 @@ export default function EventDetailPage() {
     setCategories(cats || [])
     setStandings(stands || [])
     setBracketConfig(bConfig || [])
+    setSchedule(sched || [])
     setLoading(false)
+  }
+
+  async function generateSchedule() {
+    setSaving(true)
+    setMessage(null)
+    try {
+      // Delete existing schedule first
+      await supabase.from('schedule').delete().eq('event_id', id)
+
+      // Generate schedule for each division
+      const allRows = []
+      for (const div of divisions) {
+        const divTeams = teams.filter(t => t.division_id === div.id).map(t => t.id)
+        if (divTeams.length < 2) continue
+        const rows = buildScheduleRows(id, div.id, divTeams)
+        allRows.push(...rows)
+      }
+
+      if (allRows.length === 0) {
+        throw new Error('No schedule could be generated. Make sure each division has at least 2 teams.')
+      }
+
+      const { error } = await supabase.from('schedule').insert(allRows)
+      if (error) throw error
+
+      await fetchAll()
+      setMessage({ type: 'success', text: `Schedule generated — ${allRows.length} matchups across ${divisions.length} division(s).` })
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message })
+    }
+    setSaving(false)
   }
 
   async function updateStatus(status) {
@@ -153,6 +188,7 @@ export default function EventDetailPage() {
                 <div className="stat-card"><div className="stat-label">Divisions</div><div className="stat-value">{divisions.length}</div></div>
                 <div className="stat-card"><div className="stat-label">Total Teams</div><div className="stat-value">{teams.length}</div></div>
                 <div className="stat-card"><div className="stat-label">Categories</div><div className="stat-value">{categories.length}</div></div>
+                <div className="stat-card"><div className="stat-label">Schedule Days</div><div className="stat-value">{schedule.length > 0 ? Math.max(...schedule.map(s => s.day_number)) : 0}</div></div>
                 <div className="stat-card"><div className="stat-label">Status</div><div className="stat-value" style={{ fontSize: '1.1rem' }}>{event.status}</div></div>
               </div>
 
@@ -160,6 +196,9 @@ export default function EventDetailPage() {
                 <div className="card" style={{ marginTop: '1.5rem' }}>
                   <div className="card-title">Event Controls</div>
                   <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button className="btn btn-secondary" disabled={saving} onClick={generateSchedule}>
+                      {saving ? 'Generating...' : `${schedule.length > 0 ? 'Regenerate' : 'Generate'} Schedule`}
+                    </button>
                     {event.status === 'setup' && (
                       <button className="btn btn-primary" disabled={saving} onClick={() => updateStatus('active')}>
                         Activate Event
