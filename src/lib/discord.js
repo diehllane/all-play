@@ -21,7 +21,7 @@ function formatScore(n) {
 
 // ── BOARD GAME ──────────────────────────────────────────────
 
-export async function fireboardGameWebhooks({
+export async function fireBoardGameWebhooks({
   eventName,
   dayNumber,
   publicUrl,
