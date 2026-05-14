@@ -1,8 +1,7 @@
 // src/App.jsx
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Navbar from './components/Navbar';
-import ProtectedRoute from './components/ProtectedRoute';
 
 // Public pages
 import HomePage from './pages/public/HomePage';
@@ -29,48 +28,50 @@ import HighScoreScoreEntryPage from './pages/admin/HighScoreScoreEntryPage';
 
 const BASE = '/all-play';
 
+// Simple auth guard — redirects to /login if not authenticated
+function RequireAuth({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
+
 export default function App() {
   return (
     <BrowserRouter basename={BASE}>
       <AuthProvider>
         <Navbar />
         <Routes>
-          {/* ── Public ── */}
+          {/* Public */}
           <Route path="/" element={<HomePage />} />
-
-          {/* All-Play public */}
           <Route path="/events/:slug/standings" element={<StandingsPage />} />
           <Route path="/events/:slug/schedule" element={<SchedulePage />} />
           <Route path="/events/:slug/bracket" element={<BracketPage />} />
-
-          {/* Board Game public */}
           <Route path="/board/:eventId" element={<BoardGamePage />} />
-
-          {/* High Score public */}
           <Route path="/highscore/:id" element={<HighScorePage />} />
 
-          {/* ── Auth ── */}
+          {/* Auth */}
           <Route path="/login" element={<LoginPage />} />
 
-          {/* ── Admin (protected) ── */}
-          <Route path="/admin" element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
-          <Route path="/admin/events/create" element={<ProtectedRoute><CreateEventPage /></ProtectedRoute>} />
-          <Route path="/admin/change-password" element={<ProtectedRoute><ChangePasswordPage /></ProtectedRoute>} />
+          {/* Admin */}
+          <Route path="/admin" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
+          <Route path="/admin/events/create" element={<RequireAuth><CreateEventPage /></RequireAuth>} />
+          <Route path="/admin/change-password" element={<RequireAuth><ChangePasswordPage /></RequireAuth>} />
 
           {/* All-Play admin */}
-          <Route path="/admin/events/:id" element={<ProtectedRoute><EventDetailPage /></ProtectedRoute>} />
-          <Route path="/admin/events/:id/scores" element={<ProtectedRoute><ScoreEntryPage /></ProtectedRoute>} />
-          <Route path="/admin/events/:id/scorers" element={<ProtectedRoute><ManageScorersPage /></ProtectedRoute>} />
-          <Route path="/admin/events/:id/export" element={<ProtectedRoute><ExportPage /></ProtectedRoute>} />
+          <Route path="/admin/events/:id" element={<RequireAuth><EventDetailPage /></RequireAuth>} />
+          <Route path="/admin/events/:id/scores" element={<RequireAuth><ScoreEntryPage /></RequireAuth>} />
+          <Route path="/admin/events/:id/scorers" element={<RequireAuth><ManageScorersPage /></RequireAuth>} />
+          <Route path="/admin/events/:id/export" element={<RequireAuth><ExportPage /></RequireAuth>} />
 
           {/* Board Game admin */}
-          <Route path="/admin/board/:eventId" element={<ProtectedRoute><BoardGameEventDetailPage /></ProtectedRoute>} />
-          <Route path="/admin/board/:eventId/scores" element={<ProtectedRoute><BoardGameScoreEntryPage /></ProtectedRoute>} />
-          <Route path="/admin/board/:eventId/edit" element={<ProtectedRoute><BoardGameEditPage /></ProtectedRoute>} />
+          <Route path="/admin/board/:eventId" element={<RequireAuth><BoardGameEventDetailPage /></RequireAuth>} />
+          <Route path="/admin/board/:eventId/scores" element={<RequireAuth><BoardGameScoreEntryPage /></RequireAuth>} />
+          <Route path="/admin/board/:eventId/edit" element={<RequireAuth><BoardGameEditPage /></RequireAuth>} />
 
           {/* High Score admin */}
-          <Route path="/admin/highscore/:id" element={<ProtectedRoute><HighScoreEventDetailPage /></ProtectedRoute>} />
-          <Route path="/admin/highscore/:id/scores" element={<ProtectedRoute><HighScoreScoreEntryPage /></ProtectedRoute>} />
+          <Route path="/admin/highscore/:id" element={<RequireAuth><HighScoreEventDetailPage /></RequireAuth>} />
+          <Route path="/admin/highscore/:id/scores" element={<RequireAuth><HighScoreScoreEntryPage /></RequireAuth>} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
