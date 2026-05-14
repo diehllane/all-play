@@ -5,7 +5,8 @@ import { useAuth } from '../../contexts/AuthContext'
 import Navbar from '../../components/Navbar'
 import {
   calculateDayScore, calculateLeagueAverage,
-  getMatchupPoints, recalculateStandings, formatScore, getPointLabel
+  getMatchupPoints, recalculateStandings, formatScore, getPointLabel,
+  getSeriesWinner, getRoundName
 } from '../../lib/scoring'
 
 export default function ScoreEntryPage() {
@@ -17,8 +18,11 @@ export default function ScoreEntryPage() {
   const [categories, setCategories] = useState([])
   const [schedule, setSchedule] = useState([])
   const [existingScores, setExistingScores] = useState([])
+  const [bracket, setBracket] = useState([])
+  const [bracketConfig, setBracketConfig] = useState([])
   const [loading, setLoading] = useState(true)
 
+  const [activeTab, setActiveTab] = useState('roundrobin') // 'roundrobin' | 'playoffs'
   const [selectedDay, setSelectedDay] = useState(1)
   const [selectedTeam, setSelectedTeam] = useState(null)
   const [encounters, setEncounters] = useState({})
@@ -30,16 +34,24 @@ export default function ScoreEntryPage() {
   const [undoTarget, setUndoTarget] = useState(null)
   const [commitConfirm, setCommitConfirm] = useState(false)
 
+  // Playoff state
+  const [selectedMatch, setSelectedMatch] = useState(null)
+  const [playoffEncounters, setPlayoffEncounters] = useState({ team1: {}, team2: {} })
+  const [playoffScores, setPlayoffScores] = useState({ team1: null, team2: null })
+  const [playoffSaving, setPlayoffSaving] = useState(false)
+
   useEffect(() => { fetchAll() }, [id])
 
   async function fetchAll() {
-    const [{ data: ev }, { data: divs }, { data: teamsData }, { data: cats }, { data: sched }, { data: scores }] = await Promise.all([
+    const [{ data: ev }, { data: divs }, { data: teamsData }, { data: cats }, { data: sched }, { data: scores }, { data: bracketData }, { data: bConfig }] = await Promise.all([
       supabase.from('events').select('*').eq('id', id).single(),
       supabase.from('divisions').select('*').eq('event_id', id).order('division_number'),
       supabase.from('teams').select('*').eq('event_id', id).order('team_number'),
       supabase.from('categories').select('*').eq('event_id', id).order('display_order'),
       supabase.from('schedule').select('*').eq('event_id', id),
-      supabase.from('daily_scores').select('*, score_entries(*)').eq('event_id', id)
+      supabase.from('daily_scores').select('*, score_entries(*)').eq('event_id', id),
+      supabase.from('playoff_bracket').select('*').eq('event_id', id).order('round_number').order('match_number'),
+      supabase.from('bracket_round_config').select('*').eq('event_id', id),
     ])
     setEvent(ev)
     setDivisions(divs || [])
@@ -47,6 +59,8 @@ export default function ScoreEntryPage() {
     setCategories(cats || [])
     setSchedule(sched || [])
     setExistingScores(scores || [])
+    setBracket(bracketData || [])
+    setBracketConfig(bConfig || [])
     if (teamsData?.length > 0) setSelectedTeam(teamsData[0])
     setLoading(false)
   }
@@ -55,7 +69,6 @@ export default function ScoreEntryPage() {
   const maxDay = schedule.length > 0 ? Math.max(...schedule.map(s => s.day_number)) : 1
   const days = Array.from({ length: maxDay }, (_, i) => i + 1)
 
-  const getTeam = (teamId) => teams.find(t => t.id === teamId)
   const getExistingScore = (teamId, day) => existingScores.find(s => s.team_id === teamId && s.day_number === day)
 
   // Day is committable when ALL teams have unfinalized scores entered for the day
@@ -64,6 +77,85 @@ export default function ScoreEntryPage() {
     const finalizedCount = dayScores.filter(s => s.is_finalized).length
     const pendingCount = dayScores.filter(s => !s.is_finalized).length
     return { finalizedCount, pendingCount, total: teams.length, allScored: finalizedCount === teams.length }
+  }
+
+  const getTeam = (teamId) => teams.find(t => t.id === teamId)
+
+  function calcPlayoffScore(teamKey) {
+    const enc = playoffEncounters[teamKey] || {}
+    const entries = categories.map(c => ({ category_id: c.id, encounter_count: enc[c.id] || 0 }))
+    return calculateDayScore(entries, categories)
+  }
+
+  function handlePlayoffEncounterChange(teamKey, categoryId, value) {
+    setPlayoffEncounters(prev => ({
+      ...prev,
+      [teamKey]: { ...prev[teamKey], [categoryId]: Math.max(0, parseInt(value) || 0) }
+    }))
+    setPlayoffScores({ team1: null, team2: null })
+  }
+
+  function calculatePlayoffPreview() {
+    const s1 = calcPlayoffScore('team1')
+    const s2 = calcPlayoffScore('team2')
+    setPlayoffScores({ team1: s1, team2: s2 })
+  }
+
+  async function savePlayoffMatch() {
+    if (playoffScores.team1 === null || !selectedMatch) return
+    setPlayoffSaving(true)
+    setMessage(null)
+    try {
+      const s1 = playoffScores.team1
+      const s2 = playoffScores.team2
+      const winnerId = s1 > s2 ? selectedMatch.team1_id : s2 > s1 ? selectedMatch.team2_id : null
+
+      // Get round config for series format
+      const roundCfg = bracketConfig.find(c =>
+        c.bracket_type === selectedMatch.bracket_type &&
+        c.round_number === selectedMatch.round_number
+      )
+      const format = roundCfg?.format || 'single'
+
+      // Update series wins
+      const newWins1 = (selectedMatch.series_wins_team1 || 0) + (s1 > s2 ? 1 : 0)
+      const newWins2 = (selectedMatch.series_wins_team2 || 0) + (s2 > s1 ? 1 : 0)
+      const seriesWinner = getSeriesWinner(newWins1, newWins2, format)
+      const isFinalized = format === 'single' || seriesWinner !== null
+
+      const { error } = await supabase.from('playoff_bracket').update({
+        team1_score: s1,
+        team2_score: s2,
+        winner_id: isFinalized ? (seriesWinner === 'team1' ? selectedMatch.team1_id : seriesWinner === 'team2' ? selectedMatch.team2_id : winnerId) : null,
+        series_wins_team1: newWins1,
+        series_wins_team2: newWins2,
+        is_finalized: isFinalized,
+        day_number: selectedMatch.day_number,
+      }).eq('id', selectedMatch.id)
+      if (error) throw error
+
+      setMessage({ type: 'success', text: `Match result saved.${isFinalized ? ' Match finalized.' : ' Series continues.'}` })
+      setSelectedMatch(null)
+      setPlayoffEncounters({ team1: {}, team2: {} })
+      setPlayoffScores({ team1: null, team2: null })
+      await fetchAll()
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message })
+    }
+    setPlayoffSaving(false)
+  }
+
+  async function undoPlayoffMatch(match) {
+    if (!confirm('Undo this match result? Scores and winner will be cleared.')) return
+    await supabase.from('playoff_bracket').update({
+      team1_score: null,
+      team2_score: null,
+      winner_id: null,
+      series_wins_team1: 0,
+      series_wins_team2: 0,
+      is_finalized: false,
+    }).eq('id', match.id)
+    await fetchAll()
   }
 
   function resetForm() {
@@ -293,6 +385,12 @@ export default function ScoreEntryPage() {
   const canCommit = !dayStatus.allScored && teams.every(t => !!getExistingScore(t.id, selectedDay))
   const allSavedForDay = teams.length > 0 && teams.every(t => !!getExistingScore(t.id, selectedDay))
 
+  // Playoff data
+  const activeBracket = bracket.filter(m => !m.is_bye)
+  const pendingMatches = activeBracket.filter(m => !m.is_finalized && m.team1_id && m.team2_id)
+  const completedMatches = activeBracket.filter(m => m.is_finalized)
+  const maxBracketRound = activeBracket.reduce((max, m) => Math.max(max, m.round_number), 0)
+
   return (
     <>
       <Navbar />
@@ -305,7 +403,205 @@ export default function ScoreEntryPage() {
         <div className="page-content">
           {message && <div className={`alert alert-${message.type}`} style={{ marginBottom: '1.5rem' }}>{message.text}</div>}
 
-          <div className="grid-2" style={{ marginBottom: '1.5rem', alignItems: 'start' }}>
+          {/* Tab bar — show playoffs tab when in playoffs status */}
+          {event.status === 'playoffs' && (
+            <div className="tab-bar" style={{ marginBottom: '1.5rem' }}>
+              <button className={`tab-btn ${activeTab === 'roundrobin' ? 'active' : ''}`} onClick={() => setActiveTab('roundrobin')}>
+                Round Robin
+              </button>
+              <button className={`tab-btn ${activeTab === 'playoffs' ? 'active' : ''}`} onClick={() => setActiveTab('playoffs')}>
+                Playoffs {pendingMatches.length > 0 && <span style={{ marginLeft: '0.3rem', background: 'var(--accent-red)', color: '#fff', borderRadius: 8, padding: '0 5px', fontSize: '0.7rem' }}>{pendingMatches.length}</span>}
+              </button>
+            </div>
+          )}
+
+          {/* ── Playoffs Tab ───────────────────────────────────── */}
+          {activeTab === 'playoffs' && (
+            <div>
+              {/* Pending matches */}
+              {pendingMatches.length > 0 && (
+                <div style={{ marginBottom: '2rem' }}>
+                  <h3 style={{ fontSize: '0.875rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--accent-gold)', marginBottom: '1rem' }}>
+                    Pending Matches
+                  </h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {pendingMatches.map(match => {
+                      const t1 = getTeam(match.team1_id)
+                      const t2 = getTeam(match.team2_id)
+                      const roundCfg = bracketConfig.find(c => c.bracket_type === match.bracket_type && c.round_number === match.round_number)
+                      const isSelected = selectedMatch?.id === match.id
+                      return (
+                        <div key={match.id} className="card" style={{ borderColor: isSelected ? 'var(--accent-gold)' : 'var(--border)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: isSelected ? '1.5rem' : 0 }}>
+                            <div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>
+                                {match.bracket_type === 'winners' ? "Winner's" : "Loser's"} Bracket — {getRoundName(match.round_number, maxBracketRound, match.bracket_type)}
+                                {roundCfg && roundCfg.format !== 'single' && <span style={{ marginLeft: '0.5rem' }}>({roundCfg.format.replace(/_/g, ' ')})</span>}
+                              </div>
+                              <div style={{ fontWeight: 700, fontSize: '1rem' }}>
+                                {t1?.display_name || '?'} <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>vs</span> {t2?.display_name || '?'}
+                              </div>
+                              {(match.series_wins_team1 > 0 || match.series_wins_team2 > 0) && (
+                                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                                  Series: {t1?.display_name} {match.series_wins_team1} – {match.series_wins_team2} {t2?.display_name}
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              className={`btn btn-sm ${isSelected ? 'btn-secondary' : 'btn-primary'}`}
+                              onClick={() => {
+                                if (isSelected) {
+                                  setSelectedMatch(null)
+                                  setPlayoffEncounters({ team1: {}, team2: {} })
+                                  setPlayoffScores({ team1: null, team2: null })
+                                } else {
+                                  setSelectedMatch(match)
+                                  setPlayoffEncounters({ team1: {}, team2: {} })
+                                  setPlayoffScores({ team1: null, team2: null })
+                                }
+                              }}>
+                              {isSelected ? 'Cancel' : 'Enter Scores'}
+                            </button>
+                          </div>
+
+                          {isSelected && (
+                            <div>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1rem' }}>
+                                {['team1', 'team2'].map(teamKey => {
+                                  const team = teamKey === 'team1' ? t1 : t2
+                                  return (
+                                    <div key={teamKey}>
+                                      <div style={{ fontWeight: 700, marginBottom: '0.75rem', color: 'var(--accent-gold)' }}>{team?.display_name}</div>
+                                      {categories.map(cat => (
+                                        <div key={cat.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                                          <div style={{ flex: 2, fontSize: '0.85rem' }}>
+                                            <div style={{ fontWeight: 600 }}>{cat.name}</div>
+                                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{cat.multiplier}×</div>
+                                          </div>
+                                          <input type="number" min="0" className="form-input"
+                                            style={{ flex: 1, textAlign: 'center', fontFamily: 'var(--font-mono)' }}
+                                            value={playoffEncounters[teamKey][cat.id] ?? ''}
+                                            onChange={e => handlePlayoffEncounterChange(teamKey, cat.id, e.target.value)}
+                                            placeholder="0" />
+                                          <div style={{ flex: 1, textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.85rem', color: 'var(--accent-gold)' }}>
+                                            {((playoffEncounters[teamKey][cat.id] || 0) * cat.multiplier).toFixed(1)}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )
+                                })}
+                              </div>
+
+                              <button className="btn btn-secondary" onClick={calculatePlayoffPreview} style={{ marginBottom: '1rem' }}>
+                                Preview & Calculate
+                              </button>
+
+                              {playoffScores.team1 !== null && (
+                                <div style={{ padding: '1rem', background: 'var(--bg-secondary)', borderRadius: 'var(--radius)', marginBottom: '1rem', border: '1px solid var(--border-bright)' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div style={{ textAlign: 'center', flex: 1 }}>
+                                      <div style={{ fontWeight: 700 }}>{t1?.display_name}</div>
+                                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.5rem', fontWeight: 900, color: playoffScores.team1 > playoffScores.team2 ? 'var(--win)' : playoffScores.team1 < playoffScores.team2 ? 'var(--loss)' : 'var(--tie)' }}>
+                                        {formatScore(playoffScores.team1)}
+                                      </div>
+                                    </div>
+                                    <div style={{ color: 'var(--text-muted)', fontWeight: 900, fontSize: '0.75rem' }}>VS</div>
+                                    <div style={{ textAlign: 'center', flex: 1 }}>
+                                      <div style={{ fontWeight: 700 }}>{t2?.display_name}</div>
+                                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.5rem', fontWeight: 900, color: playoffScores.team2 > playoffScores.team1 ? 'var(--win)' : playoffScores.team2 < playoffScores.team1 ? 'var(--loss)' : 'var(--tie)' }}>
+                                        {formatScore(playoffScores.team2)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  {playoffScores.team1 === playoffScores.team2 && (
+                                    <div style={{ textAlign: 'center', marginTop: '0.5rem', fontSize: '0.8rem', color: 'var(--accent-gold)' }}>
+                                      Tie — tiebreakers apply (League Average W record, then Average daily score from round robin)
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {playoffScores.team1 !== null && (
+                                <button className="btn btn-primary btn-lg" onClick={savePlayoffMatch} disabled={playoffSaving}
+                                  style={{ width: '100%', justifyContent: 'center' }}>
+                                  {playoffSaving ? 'Saving...' : 'Save Match Result'}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Completed matches */}
+              {completedMatches.length > 0 && (
+                <div>
+                  <h3 style={{ fontSize: '0.875rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                    Completed Matches
+                  </h3>
+                  <div className="card" style={{ padding: 0 }}>
+                    <div className="table-container">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Round</th>
+                            <th>Team 1</th>
+                            <th style={{ textAlign: 'center' }}>Score</th>
+                            <th>Team 2</th>
+                            <th style={{ textAlign: 'center' }}>Score</th>
+                            <th>Winner</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {completedMatches.map(match => {
+                            const t1 = getTeam(match.team1_id)
+                            const t2 = getTeam(match.team2_id)
+                            const winner = getTeam(match.winner_id)
+                            return (
+                              <tr key={match.id}>
+                                <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                  {match.bracket_type === 'winners' ? "W" : "L"} R{match.round_number}
+                                </td>
+                                <td style={{ fontWeight: match.winner_id === match.team1_id ? 700 : 400 }}>{t1?.display_name || '—'}</td>
+                                <td style={{ textAlign: 'center', fontFamily: 'var(--font-mono)', color: match.winner_id === match.team1_id ? 'var(--win)' : 'var(--loss)' }}>
+                                  {formatScore(match.team1_score)}
+                                </td>
+                                <td style={{ fontWeight: match.winner_id === match.team2_id ? 700 : 400 }}>{t2?.display_name || '—'}</td>
+                                <td style={{ textAlign: 'center', fontFamily: 'var(--font-mono)', color: match.winner_id === match.team2_id ? 'var(--win)' : 'var(--loss)' }}>
+                                  {formatScore(match.team2_score)}
+                                </td>
+                                <td style={{ color: 'var(--win)', fontWeight: 700 }}>{winner?.display_name || '—'}</td>
+                                <td>
+                                  <button className="btn btn-danger btn-sm" onClick={() => undoPlayoffMatch(match)}>Undo</button>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {pendingMatches.length === 0 && completedMatches.length === 0 && (
+                <div className="empty-state">
+                  <div className="empty-state-icon">🏆</div>
+                  <h3>No Bracket Matches</h3>
+                  <p>Generate the bracket from the Manage Event page first.</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Round Robin Tab ────────────────────────────────── */}
+          {(activeTab === 'roundrobin' || event.status !== 'playoffs') && (
+            <>
             <div className="card">
               <div className="card-title">Select Day</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
@@ -535,7 +831,9 @@ export default function ScoreEntryPage() {
                 </div>
               )}
             </div>
+            </>
           )}
+          {/* end round robin tab */}
         </div>
       </div>
     </>
