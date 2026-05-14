@@ -23,6 +23,7 @@ import ChangePasswordPage         from './pages/admin/ChangePasswordPage';
 import ExportPage                 from './pages/admin/ExportPage';
 import BoardGameEventDetailPage   from './pages/admin/BoardGameEventDetailPage';
 import BoardGameScoreEntryPage    from './pages/admin/BoardGameScoreEntryPage';
+import BoardGameEditPage          from './pages/admin/BoardGameEditPage';
 
 function ProtectedRoute({ children, requiredRole }) {
   const { user, profile, loading } = useAuth();
@@ -79,6 +80,9 @@ function AppRoutes() {
         } />
         <Route path="/admin/board/:eventId/scores" element={
           <ProtectedRoute><BoardGameScoreEntryPage /></ProtectedRoute>
+        } />
+        <Route path="/admin/board/:eventId/edit" element={
+          <ProtectedRoute requiredRole="event_runner"><BoardGameEditPage /></ProtectedRoute>
         } />
 
         {/* Fallback */}
