@@ -398,7 +398,7 @@ function AllPlayWizard() {
         .insert({
           name, slug, event_type: 'all_play', status: 'active',
           discord_overall_webhook: overallWebhook || null,
-          num_divisions: numDivisions,
+          division_count: numDivisions,
           created_by: profile?.id,
         })
         .select().single();
