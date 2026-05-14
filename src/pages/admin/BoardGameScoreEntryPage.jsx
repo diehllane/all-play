@@ -164,6 +164,36 @@ export default function BoardGameScoreEntryPage() {
         .upsert(upserts, { onConflict: 'event_id,player_id' });
       if (posErr) throw posErr;
 
+      // Award prizes for players who landed EXACTLY on a prize square
+      const prizeSquares = squares.filter(s => s.type === 'prize');
+      if (prizeSquares.length > 0) {
+        // Load already-earned prizes so we don't double-award
+        const { data: alreadyEarned } = await supabase
+          .from('board_prizes_earned')
+          .select('player_id, square_number')
+          .eq('event_id', eventId);
+        const earnedSet = new Set((alreadyEarned || []).map(e => `${e.player_id}:${e.square_number}`));
+
+        const prizeInserts = [];
+        players.forEach(p => {
+          const finalPos = newPositions[p.id];
+          prizeSquares.forEach(prize => {
+            const key = `${p.id}:${prize.square_number}`;
+            if (finalPos === prize.square_number && !earnedSet.has(key)) {
+              prizeInserts.push({
+                event_id: eventId,
+                player_id: p.id,
+                square_number: prize.square_number,
+                day_number: currentDay,
+              });
+            }
+          });
+        });
+        if (prizeInserts.length > 0) {
+          await supabase.from('board_prizes_earned').insert(prizeInserts);
+        }
+      }
+
       // Insert commit record
       const { error: commitErr } = await supabase.from('board_commits').insert({
         event_id: eventId,
@@ -202,6 +232,13 @@ export default function BoardGameScoreEntryPage() {
         .from('board_player_positions')
         .upsert(upserts, { onConflict: 'event_id,player_id' });
       if (posErr) throw posErr;
+
+      // Roll back any prizes earned on this day
+      await supabase
+        .from('board_prizes_earned')
+        .delete()
+        .eq('event_id', eventId)
+        .eq('day_number', lastCommit.day_number);
 
       // Mark commit as reverted
       const { error: revertErr } = await supabase
