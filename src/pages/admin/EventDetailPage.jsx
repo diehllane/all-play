@@ -170,9 +170,13 @@ export default function EventDetailPage() {
         r2Match[slot] = r1Match.winner_id
       })
 
-      await supabase.from('playoff_bracket').delete().eq('event_id', id)
+      const { error: deleteErr } = await supabase.from('playoff_bracket').delete().eq('event_id', id)
+      if (deleteErr) throw new Error('Failed to clear old bracket: ' + deleteErr.message)
 
       if (allMatches.length > 0) {
+        console.log('Inserting bracket matches:', allMatches.length, 
+          'winners:', allMatches.filter(m=>m.bracket_type==='winners').length,
+          'losers:', allMatches.filter(m=>m.bracket_type==='losers').length)
         const { error } = await supabase.from('playoff_bracket').insert(allMatches)
         if (error) throw error
       }
