@@ -7,7 +7,7 @@ import { sortStandings, generateWinnersBracket, generateLosersBracket } from '..
 
 export default function EventDetailPage() {
   const { id } = useParams()
-  const { profile } = useAuth()
+  const { profile, user } = useAuth()
   const navigate = useNavigate()
   const [event, setEvent] = useState(null)
   const [divisions, setDivisions] = useState([])
@@ -95,7 +95,7 @@ export default function EventDetailPage() {
     setSaving(false)
   }
 
-  const isOwner = profile?.role === 'event_runner' && event?.created_by === profile?.id
+  const isOwner = profile?.role === 'event_runner' && (event?.created_by === user?.id || event?.created_by === profile?.id)
   const winnersConfig = bracketConfig.filter(c => c.bracket_type === 'winners')
   const losersConfig = bracketConfig.filter(c => c.bracket_type === 'losers')
 
@@ -118,13 +118,13 @@ export default function EventDetailPage() {
             </p>
           )}
           <div className="page-header-actions">
-            <Link to={`/admin/event/${id}/score`} className="btn btn-primary">Enter Scores</Link>
-            <Link to={`/admin/event/${id}/export`} className="btn btn-secondary">Export XLSX</Link>
-            <a href={`/all-play/event/${event.slug}/standings`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
+            <Link to={`/admin/events/${id}/scores`} className="btn btn-primary">Enter Scores</Link>
+            <Link to={`/admin/events/${id}/export`} className="btn btn-secondary">Export XLSX</Link>
+            <Link to={`/events/${id}/standings`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
               Public View ↗
-            </a>
+            </Link>
             {isOwner && (
-              <Link to={`/admin/event/${id}/scorers`} className="btn btn-secondary">Manage Scorers</Link>
+              <Link to={`/admin/events/${id}/scorers`} className="btn btn-secondary">Manage Scorers</Link>
             )}
           </div>
         </div>
