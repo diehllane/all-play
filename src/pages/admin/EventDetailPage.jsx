@@ -120,7 +120,7 @@ export default function EventDetailPage() {
           <div className="page-header-actions">
             <Link to={`/admin/events/${id}/scores`} className="btn btn-primary">Enter Scores</Link>
             <Link to={`/admin/events/${id}/export`} className="btn btn-secondary">Export XLSX</Link>
-            <Link to={`/events/${id}/standings`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
+            <Link to={`/events/${event?.slug}/standings`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary">
               Public View ↗
             </Link>
             {isOwner && (
