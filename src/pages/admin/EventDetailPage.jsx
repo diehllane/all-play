@@ -7,7 +7,7 @@ import { sortStandings, generateWinnersBracket, generateLosersBracket } from '..
 
 export default function EventDetailPage() {
   const { id } = useParams()
-  const { profile, user } = useAuth()
+  const { profile } = useAuth()
   const navigate = useNavigate()
   const [event, setEvent] = useState(null)
   const [divisions, setDivisions] = useState([])
@@ -95,7 +95,7 @@ export default function EventDetailPage() {
     setSaving(false)
   }
 
-  const isOwner = profile?.role === 'event_runner' && (event?.created_by === user?.id || event?.created_by === profile?.id)
+  const isOwner = profile?.role === 'event_runner'
   const winnersConfig = bracketConfig.filter(c => c.bracket_type === 'winners')
   const losersConfig = bracketConfig.filter(c => c.bracket_type === 'losers')
 
