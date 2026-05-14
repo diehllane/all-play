@@ -114,7 +114,7 @@ export default function BoardGameEventDetailPage() {
           <span style={{ fontSize: 12, opacity: 0.6, background: '#c62828', padding: '2px 8px', borderRadius: 10 }}>Board Game</span>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <Link to={`/board/${eventId}`} target="_blank"
+          <Link to={`/board/${eventId}`}
             style={{ padding: '8px 16px', background: '#1e1e2e', border: '1px solid #444', color: '#fff', borderRadius: 6, textDecoration: 'none', fontSize: 13 }}>
             🎮 View Board
           </Link>

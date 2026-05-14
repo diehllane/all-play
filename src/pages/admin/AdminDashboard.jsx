@@ -97,7 +97,7 @@ export default function AdminDashboard() {
                               Manage Event
                             </Link>
                           )}
-                          <Link to={`/board/${event.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm">
+                          <Link to={`/board/${event.id}`} className="btn btn-secondary btn-sm">
                             View Board ↗
                           </Link>
                         </>
@@ -116,7 +116,7 @@ export default function AdminDashboard() {
                               </Link>
                             </>
                           )}
-                          <Link to={`/events/${event.slug}/standings`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm">
+                          <Link to={`/events/${event.slug}/standings`} className="btn btn-secondary btn-sm">
                             View Public ↗
                           </Link>
                         </>
