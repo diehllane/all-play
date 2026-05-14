@@ -1,120 +1,132 @@
 // src/pages/public/HomePage.jsx
-// Replaces the existing HomePage.
-// All events are listed with their type badge.
-// Board Game events link to /board/:id
-// All-Play events link to /events/:id/standings (existing route)
 
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { useAuth } from '../../contexts/AuthContext';
-import Navbar from '../../components/Navbar';
 
 export default function HomePage() {
-  const { profile } = useAuth();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase
-      .from('events')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .then(({ data }) => {
-        setEvents(data || []);
-        setLoading(false);
-      });
+    async function load() {
+      const { data } = await supabase
+        .from('events')
+        .select('id, name, slug, event_type, status, start_date, end_date')
+        .eq('status', 'active')
+        .order('created_at', { ascending: false });
+      setEvents(data || []);
+      setLoading(false);
+    }
+    load();
   }, []);
 
   const boardGames = events.filter(e => e.event_type === 'board_game');
-  const allPlays   = events.filter(e => e.event_type !== 'board_game');
+  const allPlay = events.filter(e => e.event_type === 'all_play');
+  const highScore = events.filter(e => e.event_type === 'high_score');
 
   return (
-    <>
-      <Navbar />
-      <div style={{ padding: 24, maxWidth: 900, margin: '0 auto', color: '#fff' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
-        <h2 style={{ margin: 0 }}>PokeNexus Events</h2>
-        {profile?.role === 'event_runner' && (
-          <Link to="/admin/events/create"
-            style={{ padding: '8px 18px', background: '#c62828', border: 'none', color: '#fff', borderRadius: 6, textDecoration: 'none', fontWeight: 600, fontSize: 14 }}>
-            + Create Event
-          </Link>
-        )}
+    <div style={s.page}>
+      <div style={s.hero}>
+        <h1 style={s.heroTitle}>PokeNexus Events</h1>
+        <p style={s.heroSub}>Live scores, standings, and leaderboards</p>
       </div>
 
-      {loading && <div style={{ opacity: 0.5 }}>Loading events...</div>}
+      {loading ? (
+        <div style={s.loading}>Loading events...</div>
+      ) : events.length === 0 ? (
+        <div style={s.empty}>No active events right now. Check back soon!</div>
+      ) : (
+        <>
+          {highScore.length > 0 && (
+            <Section title="🏆 High Score Events">
+              {highScore.map(e => (
+                <EventCard
+                  key={e.id}
+                  event={e}
+                  viewPath={`/highscore/${e.id}`}
+                  typeBadge="High Score"
+                />
+              ))}
+            </Section>
+          )}
 
-      {!loading && events.length === 0 && (
-        <div style={{ opacity: 0.4, fontSize: 15 }}>No events yet.</div>
-      )}
+          {boardGames.length > 0 && (
+            <Section title="🎲 Board Game Events">
+              {boardGames.map(e => (
+                <EventCard
+                  key={e.id}
+                  event={e}
+                  viewPath={`/board/${e.id}`}
+                  typeBadge="Board Game"
+                />
+              ))}
+            </Section>
+          )}
 
-      {boardGames.length > 0 && (
-        <section style={{ marginBottom: 32 }}>
-          <h3 style={{ fontSize: 14, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>🎲 Board Games</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {boardGames.map(ev => (
-              <EventCard key={ev.id} event={ev} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {allPlays.length > 0 && (
-        <section>
-          <h3 style={{ fontSize: 14, opacity: 0.6, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>🏆 All-Play Tournaments</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {allPlays.map(ev => (
-              <EventCard key={ev.id} event={ev} />
-            ))}
-          </div>
-        </section>
+          {allPlay.length > 0 && (
+            <Section title="⚔️ All-Play Tournaments">
+              {allPlay.map(e => (
+                <EventCard
+                  key={e.id}
+                  event={e}
+                  viewPath={`/events/${e.slug}/standings`}
+                  typeBadge="All-Play"
+                />
+              ))}
+            </Section>
+          )}
+        </>
       )}
     </div>
-    </>
   );
 }
 
-function EventCard({ event }) {
-  const isBoardGame = event.event_type === 'board_game';
-  const publicUrl   = isBoardGame ? `/board/${event.id}` : `/events/${event.slug}/standings`;
-  const adminUrl    = isBoardGame ? `/admin/board/${event.id}` : `/admin/events/${event.id}`;
-  const { profile } = useAuth();
-  const isRunner    = profile?.role === 'event_runner';
+function Section({ title, children }) {
+  return (
+    <div style={s.section}>
+      <h2 style={s.sectionTitle}>{title}</h2>
+      <div style={s.grid}>{children}</div>
+    </div>
+  );
+}
 
-  const dateRange = [event.start_date, event.end_date]
-    .filter(Boolean)
-    .map(d => new Date(d).toLocaleDateString())
-    .join(' – ');
+function EventCard({ event, viewPath, typeBadge }) {
+  const formatDate = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+  const start = formatDate(event.start_date);
+  const end = formatDate(event.end_date);
 
   return (
-    <div style={{ background: '#1e1e2e', border: '1px solid #2a2a3e', borderRadius: 8, padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-      <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-          <span style={{ fontWeight: 700, fontSize: 15 }}>{event.name}</span>
-          <span style={{
-            fontSize: 10, padding: '2px 7px', borderRadius: 8, fontWeight: 600,
-            background: isBoardGame ? '#1a3a5c' : '#1a3a1a',
-            color: isBoardGame ? '#90caf9' : '#81c784',
-            textTransform: 'uppercase', letterSpacing: 0.5
-          }}>
-            {isBoardGame ? 'Board Game' : 'All-Play'}
-          </span>
-        </div>
-        {dateRange && <div style={{ fontSize: 12, opacity: 0.55 }}>{dateRange}</div>}
-      </div>
-      <div style={{ display: 'flex', gap: 10 }}>
-        <Link to={publicUrl}
-          style={{ padding: '6px 14px', background: '#2a2a3e', border: '1px solid #444', color: '#fff', borderRadius: 6, textDecoration: 'none', fontSize: 13 }}>
-          {isBoardGame ? '🎮 View Board' : '📊 Standings'}
-        </Link>
-        {isRunner && (
-          <Link to={adminUrl}
-            style={{ padding: '6px 14px', background: '#c62828', border: 'none', color: '#fff', borderRadius: 6, textDecoration: 'none', fontSize: 13 }}>
-            Manage
-          </Link>
+    <div style={s.card}>
+      <div style={s.cardBody}>
+        <div style={s.typeBadge}>{typeBadge}</div>
+        <div style={s.eventName}>{event.name}</div>
+        {(start || end) && (
+          <div style={s.dates}>{start && end ? `${start} – ${end}` : start || end}</div>
         )}
+      </div>
+      <div style={s.cardFooter}>
+        <Link to={viewPath} style={s.viewBtn}>View Event</Link>
       </div>
     </div>
   );
 }
+
+const s = {
+  page: { maxWidth: 900, margin: '0 auto', padding: '0 16px 60px', fontFamily: 'sans-serif' },
+  hero: { padding: '40px 0 28px', textAlign: 'center' },
+  heroTitle: { color: '#fff', fontSize: 30, fontWeight: 900, margin: '0 0 6px' },
+  heroSub: { color: '#888', fontSize: 15, margin: 0 },
+  loading: { color: '#888', textAlign: 'center', padding: 60 },
+  empty: { color: '#666', textAlign: 'center', padding: 80, fontSize: 15 },
+  section: { marginBottom: 32 },
+  sectionTitle: { color: '#ccc', fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 },
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 },
+  card: { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 10, display: 'flex', flexDirection: 'column' },
+  cardBody: { padding: '16px 16px 12px', flex: 1 },
+  typeBadge: { display: 'inline-block', background: '#c62828', color: '#fff', borderRadius: 4, padding: '2px 8px', fontSize: 11, marginBottom: 8, fontWeight: 700 },
+  eventName: { color: '#fff', fontWeight: 700, fontSize: 15, marginBottom: 4 },
+  dates: { color: '#888', fontSize: 12 },
+  cardFooter: { padding: '10px 16px 14px', borderTop: '1px solid #222' },
+  viewBtn: { display: 'block', background: '#c62828', color: '#fff', borderRadius: 6, padding: '7px 14px', textDecoration: 'none', textAlign: 'center', fontSize: 13, fontWeight: 700 },
+};
