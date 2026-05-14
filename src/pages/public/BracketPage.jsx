@@ -144,8 +144,8 @@ export default function BracketPage() {
           <div className="page-header-meta">{event.name}</div>
           <h1>Playoff Bracket</h1>
           <div className="page-header-actions">
-            <Link to={`/event/${slug}/standings`} className="btn btn-secondary btn-sm">Standings</Link>
-            <Link to={`/event/${slug}/schedule`} className="btn btn-secondary btn-sm">Schedule</Link>
+            <Link to={`/events/${slug}/standings`} className="btn btn-secondary btn-sm">Standings</Link>
+            <Link to={`/events/${slug}/schedule`} className="btn btn-secondary btn-sm">Schedule</Link>
           </div>
         </div>
 

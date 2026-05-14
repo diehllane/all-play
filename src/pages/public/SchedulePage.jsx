@@ -53,8 +53,8 @@ export default function SchedulePage() {
           <div className="page-header-meta">{event.name}</div>
           <h1>Round Robin Schedule</h1>
           <div className="page-header-actions">
-            <Link to={`/event/${slug}/standings`} className="btn btn-secondary btn-sm">Standings</Link>
-            <Link to={`/event/${slug}/bracket`} className="btn btn-secondary btn-sm">Playoff Bracket</Link>
+            <Link to={`/events/${slug}/standings`} className="btn btn-secondary btn-sm">Standings</Link>
+            <Link to={`/events/${slug}/bracket`} className="btn btn-secondary btn-sm">Playoff Bracket</Link>
           </div>
         </div>
 

@@ -77,7 +77,7 @@ export default function HomePage() {
 
 function EventCard({ event }) {
   const isBoardGame = event.event_type === 'board_game';
-  const publicUrl   = isBoardGame ? `/board/${event.id}` : `/events/${event.id}/standings`;
+  const publicUrl   = isBoardGame ? `/board/${event.id}` : `/events/${event.slug}/standings`;
   const adminUrl    = isBoardGame ? `/admin/board/${event.id}` : `/admin/events/${event.id}`;
   const { profile } = useAuth();
   const isRunner    = profile?.role === 'event_runner';

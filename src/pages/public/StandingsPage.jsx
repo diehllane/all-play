@@ -64,8 +64,8 @@ export default function StandingsPage() {
           <div className="page-header-meta">{event.name}</div>
           <h1>Standings</h1>
           <div className="page-header-actions">
-            <Link to={`/event/${slug}/schedule`} className="btn btn-secondary btn-sm">Schedule</Link>
-            <Link to={`/event/${slug}/bracket`} className="btn btn-secondary btn-sm">Playoff Bracket</Link>
+            <Link to={`/events/${slug}/schedule`} className="btn btn-secondary btn-sm">Schedule</Link>
+            <Link to={`/events/${slug}/bracket`} className="btn btn-secondary btn-sm">Playoff Bracket</Link>
           </div>
         </div>
 
