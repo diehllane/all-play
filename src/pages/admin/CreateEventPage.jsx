@@ -138,6 +138,7 @@ function HighScoreWizard() {
           slug,
           event_type: 'high_score',
           status: 'active',
+          division_count: 1,
           start_date: startDate || null,
           end_date: endDate || null,
           discord_overall_webhook: overallWebhook || null,
@@ -341,7 +342,7 @@ function BoardGameWizard() {
       const { data: ev, error } = await supabase
         .from('events')
         .insert({
-          name, slug, event_type: 'board_game', status: 'active',
+          name, slug, event_type: 'board_game', status: 'active', division_count: 1,
           discord_overall_webhook: overallWebhook || null,
           created_by: profile?.id,
         })
@@ -398,7 +399,7 @@ function AllPlayWizard() {
         .insert({
           name, slug, event_type: 'all_play', status: 'active',
           discord_overall_webhook: overallWebhook || null,
-          division_count: numDivisions,
+          division_count: Number(numDivisions) || 1,
           created_by: profile?.id,
         })
         .select().single();
