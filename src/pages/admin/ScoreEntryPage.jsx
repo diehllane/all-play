@@ -97,6 +97,7 @@ export default function ScoreEntryPage() {
       const seriesWinner = getSeriesWinner(newWins1, newWins2, format)
       const isFinalized = format === 'single' || seriesWinner !== null
       const winnerId = seriesWinner === 'team1' ? selectedMatch.team1_id : seriesWinner === 'team2' ? selectedMatch.team2_id : s1 > s2 ? selectedMatch.team1_id : s2 > s1 ? selectedMatch.team2_id : null
+
       const { error } = await supabase.from('playoff_bracket').update({
         team1_score: s1, team2_score: s2,
         winner_id: isFinalized ? winnerId : null,
@@ -104,7 +105,36 @@ export default function ScoreEntryPage() {
         is_finalized: isFinalized,
       }).eq('id', selectedMatch.id)
       if (error) throw error
-      setMessage({ type: 'success', text: `Match result saved.${isFinalized ? ' Match finalized.' : ' Series continues.'}` })
+
+      // Advance winner to next round if match is finalized
+      if (isFinalized && winnerId) {
+        // Find next round matches of same bracket type
+        const nextRound = selectedMatch.round_number + 1
+        const nextRoundMatches = bracket
+          .filter(m => m.bracket_type === selectedMatch.bracket_type && m.round_number === nextRound && !m.is_bye)
+          .sort((a, b) => a.match_number - b.match_number)
+
+        if (nextRoundMatches.length > 0) {
+          // Determine which next-round match this winner feeds into
+          // Pair matches: match 1&2 → next match 1, match 3&4 → next match 2, etc.
+          const currentRoundMatches = bracket
+            .filter(m => m.bracket_type === selectedMatch.bracket_type && m.round_number === selectedMatch.round_number && !m.is_bye)
+            .sort((a, b) => a.match_number - b.match_number)
+          const matchIndex = currentRoundMatches.findIndex(m => m.id === selectedMatch.id)
+          const nextMatchIndex = Math.floor(matchIndex / 2)
+          const nextMatch = nextRoundMatches[nextMatchIndex]
+
+          if (nextMatch) {
+            // Fill team1_id if empty, otherwise team2_id
+            const updateField = !nextMatch.team1_id ? 'team1_id' : 'team2_id'
+            await supabase.from('playoff_bracket')
+              .update({ [updateField]: winnerId })
+              .eq('id', nextMatch.id)
+          }
+        }
+      }
+
+      setMessage({ type: 'success', text: `Match result saved.${isFinalized ? ' Match finalized — winner advanced.' : ' Series continues.'}` })
       setSelectedMatch(null)
       setPlayoffEncounters({ team1: {}, team2: {} })
       setPlayoffScores({ team1: null, team2: null })
