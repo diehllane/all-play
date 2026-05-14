@@ -145,24 +145,29 @@ export default function EventDetailPage() {
 
       const allMatches = [...winnersBracket, ...losersBracket]
 
-      // Auto-advance bye winners into round 2 slots
-      const round1Winners = allMatches.filter(
-        m => m.bracket_type === 'winners' && m.round_number === 1 && m.is_bye && m.winner_id
-      ).sort((a, b) => a.match_number - b.match_number)
+      // Auto-advance bye winners into round 2 slots using match number pairing
+      // Match N in round 1 feeds into match ceil(N/2) in round 2
+      const round1Matches = allMatches
+        .filter(m => m.bracket_type === 'winners' && m.round_number === 1)
+        .sort((a, b) => a.match_number - b.match_number)
 
-      const round2Matches = allMatches.filter(
-        m => m.bracket_type === 'winners' && m.round_number === 2 && !m.is_bye
-      ).sort((a, b) => a.match_number - b.match_number)
+      const round2Matches = allMatches
+        .filter(m => m.bracket_type === 'winners' && m.round_number === 2)
+        .sort((a, b) => a.match_number - b.match_number)
 
-      round1Winners.forEach((byeMatch, i) => {
-        const nextMatchIndex = Math.floor(i / 2)
-        const nextMatch = round2Matches[nextMatchIndex]
-        if (!nextMatch) return
-        const slot = i % 2 === 0 ? 'team1_id' : 'team2_id'
-        // Only fill if that slot is still empty
-        if (!nextMatch[slot]) {
-          nextMatch[slot] = byeMatch.winner_id
-        }
+      // Build a lookup: match_number → index in round2Matches
+      const round2ByMatchNum = {}
+      round2Matches.forEach((m, i) => { round2ByMatchNum[m.match_number] = i })
+
+      round1Matches.forEach((r1Match, r1Idx) => {
+        if (!r1Match.is_bye || !r1Match.winner_id) return
+        // Round 1 match at index r1Idx feeds into round 2 at index floor(r1Idx/2)
+        const r2Idx = Math.floor(r1Idx / 2)
+        const r2Match = round2Matches[r2Idx]
+        if (!r2Match) return
+        // First of each pair → team1_id, second → team2_id
+        const slot = r1Idx % 2 === 0 ? 'team1_id' : 'team2_id'
+        r2Match[slot] = r1Match.winner_id
       })
 
       await supabase.from('playoff_bracket').delete().eq('event_id', id)
