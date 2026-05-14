@@ -1,134 +1,132 @@
-import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
-import { supabase } from '../../lib/supabase'
-import { useAuth } from '../../contexts/AuthContext'
-import Navbar from '../../components/Navbar'
+// src/pages/admin/AdminDashboard.jsx
+
+import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
+
+const ACC = '#c62828';
 
 export default function AdminDashboard() {
-  const { profile } = useAuth()
-  const [events, setEvents] = useState([])
-  const [loading, setLoading] = useState(true)
+  const { profile } = useAuth();
+  const isRunner = profile?.role === 'event_runner';
 
-  useEffect(() => { fetchEvents() }, [profile])
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  async function fetchEvents() {
-    if (!profile) return
-    let query = supabase.from('events').select('*')
-
-    if (profile.role === 'event_runner') {
-      query = query.eq('created_by', profile.id)
-    } else if (profile.role === 'scorer') {
-      const { data: assignments } = await supabase
-        .from('user_event_assignments')
-        .select('event_id')
-        .eq('user_id', profile.id)
-      const eventIds = assignments?.map(a => a.event_id) || []
-      if (eventIds.length === 0) { setLoading(false); return }
-      query = query.in('id', eventIds)
+  useEffect(() => {
+    async function load() {
+      const { data } = await supabase
+        .from('events')
+        .select('id, name, slug, event_type, status, start_date, end_date, created_at')
+        .order('created_at', { ascending: false });
+      setEvents(data || []);
+      setLoading(false);
     }
+    load();
+  }, []);
 
-    const { data } = await query.order('created_at', { ascending: false })
-    setEvents(data || [])
-    setLoading(false)
-  }
+  const boardGames = events.filter(e => e.event_type === 'board_game');
+  const allPlay = events.filter(e => e.event_type === 'all_play');
+  const highScore = events.filter(e => e.event_type === 'high_score');
 
   return (
-    <>
-      <Navbar />
-      <div className="page-container">
-        <div className="page-header">
-          <div className="page-header-meta">Admin</div>
-          <h1>Dashboard</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>
-            Signed in as <strong>{profile?.email}</strong>
-            <span style={{ marginLeft: '0.5rem' }} className={`badge badge-${profile?.role === 'event_runner' ? 'active' : 'setup'}`}>
-              {profile?.role?.replace('_', ' ')}
-            </span>
-          </p>
-          {profile?.role === 'event_runner' && (
-            <div className="page-header-actions">
-              <Link to="/admin/events/create" className="btn btn-primary">+ Create Event</Link>
-            </div>
-          )}
-        </div>
-
-        <div className="page-content">
-          <h2 style={{ fontSize: '0.875rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '1rem' }}>
-            {profile?.role === 'scorer' ? 'My Assigned Events' : 'My Events'}
-          </h2>
-
-          {loading ? (
-            <div className="loading-inline"><div className="spinner" /> Loading...</div>
-          ) : events.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-state-icon">📋</div>
-              <h3>No Events Found</h3>
-              <p>{profile?.role === 'event_runner' ? 'Create your first event to get started.' : 'You have not been assigned to any events yet.'}</p>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {events.map(event => {
-                const isBoardGame = event.event_type === 'board_game'
-                return (
-                  <div key={event.id} className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem' }}>
-                        <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>{event.name}</h3>
-                        <span className={`badge badge-${event.status}`}>{event.status}</span>
-                        <span style={{
-                          fontSize: '0.7rem', padding: '2px 7px', borderRadius: 8, fontWeight: 600,
-                          background: isBoardGame ? '#1a3a5c' : '#1a3a1a',
-                          color: isBoardGame ? '#90caf9' : '#81c784',
-                          textTransform: 'uppercase', letterSpacing: 0.5
-                        }}>
-                          {isBoardGame ? 'Board Game' : 'All-Play'}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      {isBoardGame ? (
-                        <>
-                          <Link to={`/admin/board/${event.id}/scores`} className="btn btn-primary btn-sm">
-                            Enter Scores
-                          </Link>
-                          {profile?.role === 'event_runner' && (
-                            <Link to={`/admin/board/${event.id}`} className="btn btn-secondary btn-sm">
-                              Manage Event
-                            </Link>
-                          )}
-                          <Link to={`/board/${event.id}`} className="btn btn-secondary btn-sm">
-                            View Board ↗
-                          </Link>
-                        </>
-                      ) : (
-                        <>
-                          <Link to={`/admin/events/${event.id}/scores`} className="btn btn-primary btn-sm">
-                            Enter Scores
-                          </Link>
-                          {profile?.role === 'event_runner' && (
-                            <>
-                              <Link to={`/admin/events/${event.id}`} className="btn btn-secondary btn-sm">
-                                Manage Event
-                              </Link>
-                              <Link to={`/admin/events/${event.id}/scorers`} className="btn btn-secondary btn-sm">
-                                Manage Scorers
-                              </Link>
-                            </>
-                          )}
-                          <Link to={`/events/${event.slug}/standings`} className="btn btn-secondary btn-sm">
-                            View Public ↗
-                          </Link>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+    <div style={s.page}>
+      <div style={s.header}>
+        <h1 style={s.title}>Admin Dashboard</h1>
+        <div style={s.headerRight}>
+          <span style={s.roleTag}>{profile?.role}</span>
+          {isRunner && (
+            <Link to="/admin/events/create" style={s.createBtn}>+ Create Event</Link>
           )}
         </div>
       </div>
-    </>
-  )
+
+      {loading ? (
+        <div style={s.loading}>Loading events...</div>
+      ) : (
+        <>
+          <EventSection title="🏆 High Score Events" events={highScore} type="high_score" />
+          <EventSection title="🎲 Board Game Events" events={boardGames} type="board_game" />
+          <EventSection title="⚔️ All-Play Tournaments" events={allPlay} type="all_play" />
+        </>
+      )}
+    </div>
+  );
 }
+
+function EventSection({ title, events, type }) {
+  if (events.length === 0) return null;
+  return (
+    <div style={s.section}>
+      <h2 style={s.sectionTitle}>{title}</h2>
+      <div style={s.grid}>
+        {events.map(e => <EventCard key={e.id} event={e} type={type} />)}
+      </div>
+    </div>
+  );
+}
+
+function EventCard({ event, type }) {
+  const statusColor = {
+    active: '#4caf50',
+    playoffs: '#ff9800',
+    completed: '#888',
+  }[event.status] || '#888';
+
+  const adminPath =
+    type === 'board_game' ? `/admin/board/${event.id}` :
+    type === 'high_score' ? `/admin/highscore/${event.id}` :
+    `/admin/events/${event.id}`;
+
+  const publicPath =
+    type === 'board_game' ? `/board/${event.id}` :
+    type === 'high_score' ? `/highscore/${event.id}` :
+    `/events/${event.slug}/standings`;
+
+  const scorePath =
+    type === 'board_game' ? `/admin/board/${event.id}/scores` :
+    type === 'high_score' ? `/admin/highscore/${event.id}/scores` :
+    `/admin/events/${event.id}/scores`;
+
+  return (
+    <div style={s.card}>
+      <div style={s.cardTop}>
+        <div>
+          <div style={s.cardName}>{event.name}</div>
+          <div style={s.cardMeta}>
+            <span style={{ ...s.statusDot, background: statusColor }} />
+            <span style={s.statusText}>{event.status}</span>
+          </div>
+        </div>
+      </div>
+      <div style={s.cardActions}>
+        <Link to={adminPath} style={s.actionLink}>Manage</Link>
+        <Link to={scorePath} style={s.actionLink}>Scores</Link>
+        <Link to={publicPath} style={{ ...s.actionLink, ...s.publicLink }}>Public ↗</Link>
+      </div>
+    </div>
+  );
+}
+
+const s = {
+  page: { maxWidth: 960, margin: '0 auto', padding: '28px 16px', fontFamily: 'sans-serif' },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28, flexWrap: 'wrap', gap: 12 },
+  title: { color: '#fff', fontSize: 22, margin: 0 },
+  headerRight: { display: 'flex', alignItems: 'center', gap: 12 },
+  roleTag: { background: '#2a2a2a', color: '#888', borderRadius: 4, padding: '3px 10px', fontSize: 12 },
+  createBtn: { background: ACC, color: '#fff', borderRadius: 6, padding: '8px 16px', textDecoration: 'none', fontSize: 13, fontWeight: 700 },
+  loading: { color: '#888', textAlign: 'center', padding: 40 },
+  section: { marginBottom: 32 },
+  sectionTitle: { color: '#fff', fontSize: 15, marginBottom: 12 },
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 },
+  card: { background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8, padding: '14px 16px' },
+  cardTop: { marginBottom: 12 },
+  cardName: { color: '#fff', fontWeight: 600, fontSize: 15, marginBottom: 4 },
+  cardMeta: { display: 'flex', alignItems: 'center', gap: 6 },
+  statusDot: { width: 7, height: 7, borderRadius: '50%', display: 'inline-block' },
+  statusText: { color: '#888', fontSize: 12 },
+  cardActions: { display: 'flex', gap: 6 },
+  actionLink: { background: '#2a2a2a', color: '#ccc', borderRadius: 5, padding: '5px 12px', textDecoration: 'none', fontSize: 12 },
+  publicLink: { background: 'none', color: '#888', border: '1px solid #333' },
+};

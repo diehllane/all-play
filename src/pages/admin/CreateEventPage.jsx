@@ -1,566 +1,491 @@
 // src/pages/admin/CreateEventPage.jsx
-// Replaces the existing CreateEventPage.
-// Step 0: choose event type (All-Play Tournament or Board Game)
-// All-Play steps: unchanged from original.
-// Board Game steps: basic info → players → categories → board config → tile builder.
+// Step 0: pick event type (board_game | all_play | high_score | bingo[coming soon])
+// Then branches to type-specific wizard.
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-import BoardBuilder from '../../components/BoardBuilder';
-import { DEFAULT_BOARD_SQUARES } from '../../lib/boardgame';
-import Navbar from '../../components/Navbar';
+import { upsertHSConfig } from '../../lib/highscore';
 
-// ── All-Play wizard (unchanged logic, re-exported inline) ──
-// Steps 1-5 of the original wizard are preserved below.
-// Board Game wizard is new steps BG1-BG5.
+const ACC = '#c62828';
 
-const STEP_LABELS_ALLPLAY = ['Event Info', 'Divisions', 'Teams', 'Categories', 'Bracket Config'];
-const STEP_LABELS_BG      = ['Event Info', 'Players', 'Categories', 'Board Config', 'Tile Builder'];
+// ── Type Picker ───────────────────────────────────────────────
+
+const EVENT_TYPES = [
+  {
+    id: 'board_game',
+    icon: '🎲',
+    label: 'Board Game',
+    description: '252-square snake board. Daily scores move players. Gym badges, prize squares, jump squares.',
+    comingSoon: false,
+  },
+  {
+    id: 'all_play',
+    icon: '⚔️',
+    label: 'All-Play Tournament',
+    description: 'Round-robin schedule with head-to-head matchups, League Average, and playoff brackets.',
+    comingSoon: false,
+  },
+  {
+    id: 'high_score',
+    icon: '🏆',
+    label: 'High Score',
+    description: 'Solo or team competition. Cumulative daily scores build toward a final leaderboard.',
+    comingSoon: false,
+  },
+  {
+    id: 'bingo',
+    icon: '🎯',
+    label: 'Bingo',
+    description: 'Team and solo bingo boards with custom encounter categories for each square.',
+    comingSoon: true,
+  },
+];
 
 export default function CreateEventPage() {
+  const [step, setStep] = useState(0);
+  const [eventType, setEventType] = useState('');
   const navigate = useNavigate();
-  const { user } = useAuth();
 
-  const [eventType, setEventType] = useState(null); // null = not chosen yet
-  const [step, setStep]           = useState(0);
-  const [saving, setSaving]       = useState(false);
-  const [error, setError]         = useState(null);
-
-  // ── Shared fields ──────────────────────────────────────────
-  const [eventName, setEventName]       = useState('');
-  const [startDate, setStartDate]       = useState('');
-  const [endDate, setEndDate]           = useState('');
-
-  // ── All-Play fields (unchanged from original) ──────────────
-  const [numDivisions, setNumDivisions] = useState(1);
-  const [divisions, setDivisions]       = useState([{ name: 'Division 1', teams: [''] }]);
-  const [categories, setCategories]     = useState([{ name: '', multiplier: '' }]);
-  const [bracketConfig, setBracketConfig] = useState({ rounds: [] });
-
-  // ── Board Game fields ──────────────────────────────────────
-  const [bgPlayers, setBgPlayers]       = useState([{ name: '', avatar_url: '' }]);
-  const [bgCategories, setBgCategories] = useState([{ name: '', multiplier: '' }]);
-  const [bgConfig, setBgConfig]         = useState({
-    track_length: 252,
-    grid_columns: 18,
-    score_divisor: 2,
-    score_operation: 'divide',
-    score_rounding: 'ceil',
-    min_moves_per_day: 1,
-    max_moves_per_day: 0,
-    theme_color: '#c62828',
-    title_image_url: '',
-    badge_bonus_enabled: true,
-    show_badge_sidebar: true,
-    show_flavor_text: true,
-  });
-  const [bgSquares, setBgSquares]       = useState(DEFAULT_BOARD_SQUARES.map(s => ({ ...s })));
-
-  const stepLabels = eventType === 'board_game' ? STEP_LABELS_BG : STEP_LABELS_ALLPLAY;
-  const totalSteps = stepLabels.length;
-
-  // ── Save handlers ──────────────────────────────────────────
-  const handleSaveAllPlay = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      const slug = eventName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now();
-      // 1. Create event
-      const { data: ev, error: evErr } = await supabase.from('events').insert({
-        name: eventName,
-        slug,
-        start_date: startDate || null,
-        end_date: endDate || null,
-        event_type: 'all_play',
-        division_count: divisions.length,
-        status: 'setup',
-        created_by: user?.id,
-      }).select().single();
-      if (evErr) throw evErr;
-
-      // 2. Divisions + teams
-      for (const [divIndex, div] of divisions.entries()) {
-        const { data: divData, error: divErr } = await supabase.from('divisions').insert({
-          event_id: ev.id,
-          name: div.name,
-          division_number: divIndex + 1,
-        }).select().single();
-        if (divErr) throw divErr;
-        const teamInserts = div.teams.filter(t => t.trim()).map((name, teamIndex) => ({
-          event_id: ev.id,
-          division_id: divData.id,
-          name,
-          team_number: teamIndex + 1,
-        }));
-        if (teamInserts.length) {
-          const { error: tErr } = await supabase.from('teams').insert(teamInserts);
-          if (tErr) throw tErr;
-        }
-      }
-
-      // 3. Categories
-      const catInserts = categories.filter(c => c.name.trim()).map(c => ({
-        event_id: ev.id, name: c.name, multiplier: parseFloat(c.multiplier) || 1,
-      }));
-      if (catInserts.length) {
-        const { error: cErr } = await supabase.from('categories').insert(catInserts);
-        if (cErr) throw cErr;
-      }
-
-      // 4. Bracket config — default 4 rounds each for winners and losers
-      const bracketRows = [];
-      const formats = bracketConfig.rounds || [];
-      ['winners', 'losers'].forEach(bracketType => {
-        [1, 2, 3, 4].forEach(round => {
-          const format = formats[round - 1]?.format || 'single';
-          bracketRows.push({
-            event_id: ev.id,
-            bracket_type: bracketType,
-            round_number: round,
-            round_name: null,
-            format,
-            days_per_game: 1,
-          });
-        });
-      });
-      const { error: bErr } = await supabase.from('bracket_round_config').insert(bracketRows);
-      if (bErr) throw bErr;
-
-      navigate(`/admin/events/${ev.id}`);
-    } catch (e) {
-      setError(e.message);
-      setSaving(false);
-    }
-  };
-
-  const handleSaveBoardGame = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      const slug = eventName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now();
-      // 1. Create event
-      const { data: ev, error: evErr } = await supabase.from('events').insert({
-        name: eventName,
-        slug,
-        start_date: startDate || null,
-        end_date: endDate || null,
-        event_type: 'board_game',
-        division_count: 1,
-        status: 'setup',
-        created_by: user?.id,
-      }).select().single();
-      if (evErr) throw evErr;
-
-      // 2. Board game config
-      const { error: cfgErr } = await supabase.from('board_game_config').insert({
-        event_id: ev.id,
-        ...bgConfig,
-        title_image_url: bgConfig.title_image_url || null,
-      });
-      if (cfgErr) throw cfgErr;
-
-      // 3. Players
-      const playerInserts = bgPlayers.filter(p => p.name.trim()).map((p, i) => ({
-        event_id: ev.id,
-        name: p.name.trim(),
-        avatar_url: p.avatar_url.trim() || null,
-        sort_order: i,
-      }));
-      if (playerInserts.length) {
-        const { error: pErr } = await supabase.from('board_players').insert(playerInserts);
-        if (pErr) throw pErr;
-      }
-
-      // 4. Categories (same table as all-play, event-scoped)
-      const catInserts = bgCategories.filter(c => c.name.trim()).map(c => ({
-        event_id: ev.id, name: c.name.trim(), multiplier: parseFloat(c.multiplier) || 1,
-      }));
-      if (catInserts.length) {
-        const { error: cErr } = await supabase.from('categories').insert(catInserts);
-        if (cErr) throw cErr;
-      }
-
-      // 5. Board squares
-      const squareInserts = bgSquares.map(s => ({
-        event_id: ev.id,
-        square_number: s.square_number,
-        type: s.type,
-        label: s.label || null,
-        icon: s.icon || null,
-        jump_to: s.jump_to != null ? parseInt(s.jump_to) : null,
-        move_amount: s.move_amount != null ? parseInt(s.move_amount) : null,
-        badge: s.badge || null,
-        description: s.description || null,
-        flavor_text: s.flavor_text || null,
-      }));
-      if (squareInserts.length) {
-        const { error: sErr } = await supabase.from('board_squares').insert(squareInserts);
-        if (sErr) throw sErr;
-      }
-
-      navigate(`/admin/board/${ev.id}`);
-    } catch (e) {
-      setError(e.message);
-      setSaving(false);
-    }
-  };
-
-  // ── Step 0: event type picker ─────────────────────────────
-  if (!eventType) {
-    return (
-      <>
-        <Navbar />
-        <div style={{ padding: 40, maxWidth: 600, margin: '0 auto', color: '#fff' }}>
-        <h2 style={{ marginBottom: 8 }}>Create New Event</h2>
-        <p style={{ opacity: 0.6, marginBottom: 32 }}>What type of event are you running?</p>
-        <div style={{ display: 'flex', gap: 20 }}>
-          <EventTypeCard
-            title="All-Play Tournament"
-            icon="🏆"
-            description="Round-robin schedule, head-to-head matchups, League Average, playoff brackets."
-            onClick={() => { setEventType('all_play'); setStep(0); }}
-          />
-          <EventTypeCard
-            title="Board Game"
-            icon="🎲"
-            description="252-square board, daily score → moves, gym badges, prize squares, drag-and-drop tile config."
-            onClick={() => { setEventType('board_game'); setStep(0); }}
-          />
-        </div>
-      </div>
-      </>
-    );
+  if (step === 0) {
+    return <TypePicker onSelect={type => { setEventType(type); setStep(1); }} />;
   }
 
-  // ── Wizard shell ──────────────────────────────────────────
-  const canNext = step < totalSteps - 1;
-  const canBack = step > 0;
-  const isLast  = step === totalSteps - 1;
+  if (eventType === 'board_game') return <BoardGameWizard />;
+  if (eventType === 'all_play') return <AllPlayWizard />;
+  if (eventType === 'high_score') return <HighScoreWizard />;
+  return null;
+}
+
+// ── Type Picker Component ─────────────────────────────────────
+
+function TypePicker({ onSelect }) {
+  return (
+    <div style={s.page}>
+      <Link to="/admin" style={s.back}>← Dashboard</Link>
+      <h1 style={s.title}>Create New Event</h1>
+      <p style={s.subtitle}>Choose an event type to get started.</p>
+      <div style={s.typeGrid}>
+        {EVENT_TYPES.map(t => (
+          <button
+            key={t.id}
+            onClick={() => !t.comingSoon && onSelect(t.id)}
+            style={{
+              ...s.typeCard,
+              ...(t.comingSoon ? s.typeCardDisabled : {}),
+            }}
+            disabled={t.comingSoon}
+          >
+            <div style={s.typeIcon}>{t.icon}</div>
+            <div style={s.typeLabel}>{t.label}</div>
+            {t.comingSoon && <div style={s.comingSoon}>Coming Soon</div>}
+            <div style={s.typeDesc}>{t.description}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── High Score Wizard ─────────────────────────────────────────
+
+function HighScoreWizard() {
+  const navigate = useNavigate();
+  const { profile } = useAuth();
+  const [wizStep, setWizStep] = useState(1);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  // Step 1: Basic info + mode
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [mode, setMode] = useState('solo'); // 'solo' | 'team'
+  const [overallWebhook, setOverallWebhook] = useState('');
+
+  // Step 2: Config
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [scoreDivisor, setScoreDivisor] = useState(1);
+  const [scoreOperation, setScoreOperation] = useState('divide');
+  const [scoreRounding, setScoreRounding] = useState('round');
+  const [allowHandicap, setAllowHandicap] = useState(false);
+  const [themeColor, setThemeColor] = useState('#c62828');
+  const [titleImageUrl, setTitleImageUrl] = useState('');
+
+  // Step 3: Categories
+  const [categories, setCategories] = useState([{ name: '', multiplier: 1 }]);
+
+  function addCategory() { setCategories(c => [...c, { name: '', multiplier: 1 }]); }
+  function removeCategory(i) { setCategories(c => c.filter((_, idx) => idx !== i)); }
+  function updateCategory(i, field, val) {
+    setCategories(c => c.map((cat, idx) => idx === i ? { ...cat, [field]: val } : cat));
+  }
+
+  async function handleCreate() {
+    if (!name.trim()) { setMsg('Event name is required.'); return; }
+    if (!slug.trim()) { setMsg('URL slug is required.'); return; }
+    if (categories.some(c => !c.name.trim())) { setMsg('All categories need a name.'); return; }
+
+    setSaving(true);
+    setMsg('');
+    try {
+      // Create event
+      const { data: ev, error: evErr } = await supabase
+        .from('events')
+        .insert({
+          name,
+          slug,
+          event_type: 'high_score',
+          status: 'active',
+          start_date: startDate || null,
+          end_date: endDate || null,
+          discord_overall_webhook: overallWebhook || null,
+          created_by: profile?.id,
+        })
+        .select()
+        .single();
+      if (evErr) throw evErr;
+
+      // Create hs_config
+      await upsertHSConfig(ev.id, {
+        mode,
+        theme_color: themeColor,
+        title_image_url: titleImageUrl || null,
+        start_date: startDate || null,
+        end_date: endDate || null,
+        score_divisor: Number(scoreDivisor),
+        score_operation: scoreOperation,
+        score_rounding: scoreRounding,
+        allow_handicap: allowHandicap,
+      });
+
+      // Create categories
+      if (categories.length > 0) {
+        await supabase.from('categories').insert(
+          categories.filter(c => c.name.trim()).map(c => ({
+            event_id: ev.id,
+            name: c.name.trim(),
+            multiplier: Number(c.multiplier),
+          }))
+        );
+      }
+
+      navigate(`/admin/highscore/${ev.id}`);
+    } catch (e) {
+      setMsg(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
-    <>
-    <Navbar />
-    <div style={{ padding: 24, maxWidth: 860, margin: '0 auto', color: '#fff' }}>
-      {/* Progress bar */}
-      <div style={{ marginBottom: 28 }}>
-        <div style={{ display: 'flex', gap: 0, marginBottom: 8 }}>
-          {stepLabels.map((label, i) => (
-            <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 12, opacity: i === step ? 1 : 0.4, fontWeight: i === step ? 700 : 400, transition: 'all 0.2s' }}>
-              {i + 1}. {label}
+    <div style={s.page}>
+      <Link to="/admin" style={s.back}>← Dashboard</Link>
+      <h1 style={s.title}>🏆 New High Score Event</h1>
+
+      {/* Step indicators */}
+      <div style={s.stepRow}>
+        {['Basics', 'Config', 'Categories'].map((label, i) => (
+          <div key={i} style={{ ...s.step, ...(wizStep === i + 1 ? s.stepActive : {}) }}>
+            <span style={s.stepNum}>{i + 1}</span> {label}
+          </div>
+        ))}
+      </div>
+
+      {msg && <div style={s.msg}>{msg}</div>}
+
+      {/* Step 1: Basics */}
+      {wizStep === 1 && (
+        <div style={s.card}>
+          <h2 style={s.cardTitle}>Event Basics</h2>
+
+          <label style={s.label}>Event Name</label>
+          <input value={name} onChange={e => setName(e.target.value)} style={s.input} placeholder="Summer High Score Challenge" />
+
+          <label style={s.label}>URL Slug</label>
+          <input value={slug} onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))} style={s.input} placeholder="summer-high-score-2026" />
+          <div style={s.hint}>Used in the public URL. Letters, numbers, and hyphens only.</div>
+
+          <label style={s.label}>Mode</label>
+          <div style={s.radioRow}>
+            {[['solo', '👤 Solo — individual players only'], ['team', '👥 Team — players grouped into teams']].map(([val, lbl]) => (
+              <label key={val} style={s.radioLabel}>
+                <input type="radio" value={val} checked={mode === val} onChange={() => setMode(val)} />
+                {lbl}
+              </label>
+            ))}
+          </div>
+
+          <label style={s.label}>Overall Discord Webhook (optional)</label>
+          <input value={overallWebhook} onChange={e => setOverallWebhook(e.target.value)} style={s.input} placeholder="https://discord.com/api/webhooks/..." />
+          <div style={s.hint}>Posts full standings to this channel on every day commit.</div>
+
+          <div style={s.navRow}>
+            <button onClick={() => setWizStep(2)} style={s.nextBtn}>Next →</button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 2: Config */}
+      {wizStep === 2 && (
+        <div style={s.card}>
+          <h2 style={s.cardTitle}>Scoring & Display</h2>
+
+          <div style={s.twoCol}>
+            <div>
+              <label style={s.label}>Start Date</label>
+              <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={s.input} />
+            </div>
+            <div>
+              <label style={s.label}>End Date</label>
+              <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={s.input} />
+            </div>
+          </div>
+
+          <div style={s.twoCol}>
+            <div>
+              <label style={s.label}>Score Divisor</label>
+              <input type="number" value={scoreDivisor} onChange={e => setScoreDivisor(e.target.value)} style={s.input} min="0.1" step="0.1" />
+            </div>
+            <div>
+              <label style={s.label}>Operation</label>
+              <select value={scoreOperation} onChange={e => setScoreOperation(e.target.value)} style={s.input}>
+                <option value="divide">Divide</option>
+                <option value="multiply">Multiply</option>
+              </select>
+            </div>
+          </div>
+
+          <label style={s.label}>Score Rounding</label>
+          <select value={scoreRounding} onChange={e => setScoreRounding(e.target.value)} style={s.input}>
+            <option value="round">Round (nearest)</option>
+            <option value="ceil">Ceiling (always up)</option>
+            <option value="floor">Floor (always down)</option>
+          </select>
+
+          {mode === 'team' && (
+            <label style={s.checkLabel}>
+              <input type="checkbox" checked={allowHandicap} onChange={e => setAllowHandicap(e.target.checked)} />
+              Enable handicap multipliers per team
+            </label>
+          )}
+
+          <label style={s.label}>Theme Color</label>
+          <input type="color" value={themeColor} onChange={e => setThemeColor(e.target.value)} style={{ ...s.input, height: 40, padding: 4, width: 80 }} />
+
+          <label style={s.label}>Title Image URL (optional)</label>
+          <input value={titleImageUrl} onChange={e => setTitleImageUrl(e.target.value)} style={s.input} placeholder="https://..." />
+
+          <div style={s.navRow}>
+            <button onClick={() => setWizStep(1)} style={s.backBtn}>← Back</button>
+            <button onClick={() => setWizStep(3)} style={s.nextBtn}>Next →</button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 3: Categories */}
+      {wizStep === 3 && (
+        <div style={s.card}>
+          <h2 style={s.cardTitle}>Score Categories</h2>
+          <p style={s.hint}>Define what players catch and how many points each is worth.</p>
+
+          {categories.map((cat, i) => (
+            <div key={i} style={s.catRow}>
+              <input
+                value={cat.name}
+                onChange={e => updateCategory(i, 'name', e.target.value)}
+                style={{ ...s.input, flex: 1 }}
+                placeholder="Category name (e.g. Shiny Legend)"
+              />
+              <input
+                type="number"
+                value={cat.multiplier}
+                onChange={e => updateCategory(i, 'multiplier', e.target.value)}
+                style={{ ...s.input, width: 80 }}
+                placeholder="Pts"
+                min="1"
+              />
+              <button onClick={() => removeCategory(i)} style={s.removeBtn}>✕</button>
             </div>
           ))}
-        </div>
-        <div style={{ height: 4, background: '#2a2a3e', borderRadius: 2, overflow: 'hidden' }}>
-          <div style={{ width: `${((step + 1) / totalSteps) * 100}%`, height: '100%', background: '#c62828', transition: 'width 0.3s' }} />
-        </div>
-      </div>
+          <button onClick={addCategory} style={s.addCatBtn}>+ Add Category</button>
 
-      {error && (
-        <div style={{ padding: '10px 16px', marginBottom: 16, borderRadius: 6, background: '#4a1010', border: '1px solid #c62828' }}>
-          {error}
+          <div style={s.navRow}>
+            <button onClick={() => setWizStep(2)} style={s.backBtn}>← Back</button>
+            <button onClick={handleCreate} disabled={saving} style={s.createBtn}>
+              {saving ? 'Creating...' : 'Create Event'}
+            </button>
+          </div>
         </div>
       )}
+    </div>
+  );
+}
 
-      {/* ── BOARD GAME STEPS ──────────────────────────────── */}
-      {eventType === 'board_game' && (
-        <>
-          {/* BG Step 0: Basic info */}
-          {step === 0 && (
-            <WizardStep title="Event Information">
-              <FormField label="Event Name *" value={eventName} onChange={setEventName} placeholder="PokeNexus Summer Board Game" />
-              <FormField label="Start Date" value={startDate} onChange={setStartDate} type="date" />
-              <FormField label="End Date" value={endDate} onChange={setEndDate} type="date" />
-              <FormField label="Theme Color" value={bgConfig.theme_color} onChange={v => setBgConfig(c => ({ ...c, theme_color: v }))} type="color" />
-              <FormField label="Title Image URL (optional)" value={bgConfig.title_image_url} onChange={v => setBgConfig(c => ({ ...c, title_image_url: v }))} placeholder="https://..." />
-            </WizardStep>
-          )}
+// ── Board Game Wizard (delegates to existing flow) ────────────
 
-          {/* BG Step 1: Players */}
-          {step === 1 && (
-            <WizardStep title="Players">
-              <p style={{ fontSize: 13, opacity: 0.6, marginBottom: 16 }}>
-                Add all participants. You can also add players after event creation from the Event Detail page.
-              </p>
-              {bgPlayers.map((p, i) => (
-                <div key={i} style={{ display: 'flex', gap: 10, marginBottom: 8 }}>
-                  <input value={p.name} onChange={e => { const a = [...bgPlayers]; a[i].name = e.target.value; setBgPlayers(a); }}
-                    placeholder={`Player ${i + 1} name`}
-                    style={{ flex: 2, padding: '7px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }} />
-                  <input value={p.avatar_url} onChange={e => { const a = [...bgPlayers]; a[i].avatar_url = e.target.value; setBgPlayers(a); }}
-                    placeholder="Avatar URL (optional)"
-                    style={{ flex: 3, padding: '7px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }} />
-                  <button onClick={() => setBgPlayers(bgPlayers.filter((_, j) => j !== i))}
-                    style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 18 }}>✕</button>
-                </div>
-              ))}
-              <button onClick={() => setBgPlayers([...bgPlayers, { name: '', avatar_url: '' }])}
-                style={{ padding: '6px 14px', background: '#2a2a3e', border: '1px solid #444', color: '#fff', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
-                + Add Player
-              </button>
-            </WizardStep>
-          )}
+function BoardGameWizard() {
+  const navigate = useNavigate();
+  const { profile } = useAuth();
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [overallWebhook, setOverallWebhook] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
 
-          {/* BG Step 2: Categories */}
-          {step === 2 && (
-            <WizardStep title="Encounter Categories">
-              <p style={{ fontSize: 13, opacity: 0.6, marginBottom: 16 }}>
-                Define each encounter type and its point value. These appear in the score entry dropdowns.
-              </p>
-              {bgCategories.map((c, i) => (
-                <div key={i} style={{ display: 'flex', gap: 10, marginBottom: 8, alignItems: 'center' }}>
-                  <input value={c.name} onChange={e => { const a = [...bgCategories]; a[i].name = e.target.value; setBgCategories(a); }}
-                    placeholder="Category name (e.g. Shiny Legend)"
-                    style={{ flex: 3, padding: '7px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }} />
-                  <input value={c.multiplier} onChange={e => { const a = [...bgCategories]; a[i].multiplier = e.target.value; setBgCategories(a); }}
-                    placeholder="Points" type="number" min="0"
-                    style={{ flex: 1, padding: '7px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }} />
-                  <button onClick={() => setBgCategories(bgCategories.filter((_, j) => j !== i))}
-                    style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 18 }}>✕</button>
-                </div>
-              ))}
-              <button onClick={() => setBgCategories([...bgCategories, { name: '', multiplier: '' }])}
-                style={{ padding: '6px 14px', background: '#2a2a3e', border: '1px solid #444', color: '#fff', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
-                + Add Category
-              </button>
-            </WizardStep>
-          )}
+  async function handleCreate() {
+    if (!name.trim() || !slug.trim()) { setMsg('Name and slug required.'); return; }
+    setSaving(true);
+    try {
+      const { data: ev, error } = await supabase
+        .from('events')
+        .insert({
+          name, slug, event_type: 'board_game', status: 'active',
+          discord_overall_webhook: overallWebhook || null,
+          created_by: profile?.id,
+        })
+        .select().single();
+      if (error) throw error;
+      navigate(`/admin/board/${ev.id}`);
+    } catch (e) { setMsg(e.message); }
+    finally { setSaving(false); }
+  }
 
-          {/* BG Step 3: Board Config */}
-          {step === 3 && (
-            <WizardStep title="Board Configuration">
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                <FormField label="Track Length" value={bgConfig.track_length} onChange={v => setBgConfig(c => ({ ...c, track_length: parseInt(v) || 252 }))} type="number" />
-                <FormField label="Grid Columns" value={bgConfig.grid_columns} onChange={v => setBgConfig(c => ({ ...c, grid_columns: parseInt(v) || 18 }))} type="number" />
-                <FormField label="Score Divisor" value={bgConfig.score_divisor} onChange={v => setBgConfig(c => ({ ...c, score_divisor: parseFloat(v) || 2 }))} type="number" />
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Score Operation</label>
-                  <select value={bgConfig.score_operation} onChange={e => setBgConfig(c => ({ ...c, score_operation: e.target.value }))}
-                    style={{ width: '100%', padding: '7px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }}>
-                    <option value="divide">Divide</option>
-                    <option value="multiply">Multiply</option>
-                  </select>
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Score Rounding</label>
-                  <select value={bgConfig.score_rounding} onChange={e => setBgConfig(c => ({ ...c, score_rounding: e.target.value }))}
-                    style={{ width: '100%', padding: '7px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }}>
-                    <option value="ceil">Ceiling (round up)</option>
-                    <option value="floor">Floor (round down)</option>
-                    <option value="round">Round (nearest)</option>
-                  </select>
-                </div>
-                <FormField label="Min Moves/Day (0 = none)" value={bgConfig.min_moves_per_day} onChange={v => setBgConfig(c => ({ ...c, min_moves_per_day: parseInt(v) || 0 }))} type="number" />
-                <FormField label="Max Moves/Day (0 = no cap)" value={bgConfig.max_moves_per_day} onChange={v => setBgConfig(c => ({ ...c, max_moves_per_day: parseInt(v) || 0 }))} type="number" />
-              </div>
-              <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <ToggleField label="Badge Bonus Enabled" value={bgConfig.badge_bonus_enabled} onChange={v => setBgConfig(c => ({ ...c, badge_bonus_enabled: v }))} />
-                <ToggleField label="Show Badge Sidebar" value={bgConfig.show_badge_sidebar} onChange={v => setBgConfig(c => ({ ...c, show_badge_sidebar: v }))} />
-                <ToggleField label="Show Flavor Text" value={bgConfig.show_flavor_text} onChange={v => setBgConfig(c => ({ ...c, show_flavor_text: v }))} />
-              </div>
-              <div style={{ marginTop: 14, padding: 12, background: '#13131f', borderRadius: 6, fontSize: 13, opacity: 0.7 }}>
-                With divisor <strong>{bgConfig.score_divisor}</strong> ({bgConfig.score_operation}), a raw score of <strong>200</strong> → <strong>{
-                  bgConfig.score_operation === 'divide'
-                    ? (bgConfig.score_rounding === 'ceil' ? Math.ceil(200 / bgConfig.score_divisor) : bgConfig.score_rounding === 'floor' ? Math.floor(200 / bgConfig.score_divisor) : Math.round(200 / bgConfig.score_divisor))
-                    : Math.round(200 * bgConfig.score_divisor)
-                } moves</strong>
-              </div>
-            </WizardStep>
-          )}
-
-          {/* BG Step 4: Tile Builder */}
-          {step === 4 && (
-            <WizardStep title="Board Tile Placement">
-              <p style={{ fontSize: 13, opacity: 0.6, marginBottom: 12 }}>
-                The default Kanto/Johto layout is pre-loaded. Drag tiles to reposition, click to edit, click empty squares to add.
-              </p>
-              <BoardBuilder
-                squares={bgSquares}
-                onChange={setBgSquares}
-                trackLength={bgConfig.track_length}
-                gridColumns={bgConfig.grid_columns}
-                themeColor={bgConfig.theme_color}
-              />
-            </WizardStep>
-          )}
-        </>
-      )}
-
-      {/* ── ALL-PLAY STEPS (original wizard logic) ─────────── */}
-      {eventType === 'all_play' && (
-        <>
-          {step === 0 && (
-            <WizardStep title="Event Information">
-              <FormField label="Event Name *" value={eventName} onChange={setEventName} placeholder="PokeNexus Summer All-Play" />
-              <FormField label="Start Date" value={startDate} onChange={setStartDate} type="date" />
-              <FormField label="End Date" value={endDate} onChange={setEndDate} type="date" />
-            </WizardStep>
-          )}
-          {step === 1 && (
-            <WizardStep title="Divisions">
-              <p style={{ fontSize: 13, opacity: 0.6, marginBottom: 12 }}>How many divisions? (1–4)</p>
-              <input type="number" min={1} max={4} value={numDivisions}
-                onChange={e => {
-                  const n = Math.min(4, Math.max(1, parseInt(e.target.value) || 1));
-                  setNumDivisions(n);
-                  setDivisions(Array.from({ length: n }, (_, i) => divisions[i] || { name: `Division ${i+1}`, teams: [''] }));
-                }}
-                style={{ width: 80, padding: '7px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13, marginBottom: 16 }} />
-              {divisions.map((div, i) => (
-                <div key={i} style={{ marginBottom: 12 }}>
-                  <input value={div.name} onChange={e => { const a=[...divisions]; a[i].name=e.target.value; setDivisions(a); }}
-                    style={{ padding: '7px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13, marginBottom: 6, width: 220 }}
-                    placeholder={`Division ${i+1} name`} />
-                </div>
-              ))}
-            </WizardStep>
-          )}
-          {step === 2 && (
-            <WizardStep title="Teams">
-              {divisions.map((div, di) => (
-                <div key={di} style={{ marginBottom: 20 }}>
-                  <h4 style={{ margin: '0 0 8px 0', color: '#c62828' }}>{div.name}</h4>
-                  {div.teams.map((t, ti) => (
-                    <div key={ti} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-                      <input value={t} onChange={e => { const a=[...divisions]; a[di].teams[ti]=e.target.value; setDivisions(a); }}
-                        placeholder={`Team ${ti+1}`}
-                        style={{ flex: 1, padding: '7px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }} />
-                      <button onClick={() => { const a=[...divisions]; a[di].teams=a[di].teams.filter((_,j)=>j!==ti); setDivisions(a); }}
-                        style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}>✕</button>
-                    </div>
-                  ))}
-                  <button onClick={() => { const a=[...divisions]; a[di].teams.push(''); setDivisions(a); }}
-                    style={{ fontSize: 12, background: 'none', border: '1px solid #444', color: '#aaa', padding: '4px 10px', borderRadius: 6, cursor: 'pointer' }}>+ Team</button>
-                </div>
-              ))}
-            </WizardStep>
-          )}
-          {step === 3 && (
-            <WizardStep title="Encounter Categories">
-              {categories.map((c, i) => (
-                <div key={i} style={{ display: 'flex', gap: 10, marginBottom: 8 }}>
-                  <input value={c.name} onChange={e => { const a=[...categories]; a[i].name=e.target.value; setCategories(a); }}
-                    placeholder="Category name"
-                    style={{ flex: 3, padding: '7px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }} />
-                  <input value={c.multiplier} onChange={e => { const a=[...categories]; a[i].multiplier=e.target.value; setCategories(a); }}
-                    placeholder="Points" type="number"
-                    style={{ flex: 1, padding: '7px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }} />
-                  <button onClick={() => setCategories(categories.filter((_,j)=>j!==i))}
-                    style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 18 }}>✕</button>
-                </div>
-              ))}
-              <button onClick={() => setCategories([...categories, { name: '', multiplier: '' }])}
-                style={{ padding: '6px 14px', background: '#2a2a3e', border: '1px solid #444', color: '#fff', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
-                + Add Category
-              </button>
-            </WizardStep>
-          )}
-          {step === 4 && (
-            <WizardStep title="Bracket Configuration">
-              <p style={{ fontSize: 13, opacity: 0.6, marginBottom: 12 }}>
-                Configure per-round series format for the playoff bracket. You can set this after creation too.
-              </p>
-              {[1,2,3,4].map(round => {
-                const r = bracketConfig.rounds?.[round-1] || { format: 'single' };
-                return (
-                  <div key={round} style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 10 }}>
-                    <label style={{ width: 80, fontSize: 13, opacity: 0.7 }}>Round {round}</label>
-                    <select value={r.format}
-                      onChange={e => {
-                        const rounds = [...(bracketConfig.rounds || [{},{},{},{}])];
-                        rounds[round-1] = { ...rounds[round-1], format: e.target.value };
-                        setBracketConfig({ rounds });
-                      }}
-                      style={{ padding: '6px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }}>
-                      <option value="single">Single Game</option>
-                      <option value="best_of_3">Best of 3</option>
-                      <option value="best_of_5">Best of 5</option>
-                    </select>
-                  </div>
-                );
-              })}
-            </WizardStep>
-          )}
-        </>
-      )}
-
-      {/* Nav buttons */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 28 }}>
-        <div>
-          <button onClick={() => { if (step === 0) setEventType(null); else setStep(s => s - 1); }}
-            style={{ padding: '9px 20px', background: '#2a2a3e', border: '1px solid #444', color: '#fff', borderRadius: 6, cursor: 'pointer' }}>
-            ← {step === 0 ? 'Change Type' : 'Back'}
+  return (
+    <div style={s.page}>
+      <Link to="/admin" style={s.back}>← Dashboard</Link>
+      <h1 style={s.title}>🎲 New Board Game Event</h1>
+      {msg && <div style={s.msg}>{msg}</div>}
+      <div style={s.card}>
+        <label style={s.label}>Event Name</label>
+        <input value={name} onChange={e => setName(e.target.value)} style={s.input} placeholder="PokeNexus Summer Board Game" />
+        <label style={s.label}>URL Slug</label>
+        <input value={slug} onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))} style={s.input} placeholder="summer-board-game-2026" />
+        <label style={s.label}>Overall Discord Webhook (optional)</label>
+        <input value={overallWebhook} onChange={e => setOverallWebhook(e.target.value)} style={s.input} placeholder="https://discord.com/api/webhooks/..." />
+        <div style={s.hint}>Posts full board standings on every day commit. Configure player-level webhooks in the event editor after creation.</div>
+        <div style={s.navRow}>
+          <button onClick={handleCreate} disabled={saving} style={s.createBtn}>
+            {saving ? 'Creating...' : 'Create Event'}
           </button>
         </div>
-        <div>
-          {canNext && (
-            <button onClick={() => setStep(s => s + 1)}
-              disabled={step === 0 && !eventName.trim()}
-              style={{ padding: '9px 24px', background: '#c62828', border: 'none', color: '#fff', borderRadius: 6, cursor: 'pointer', fontWeight: 700, opacity: (step === 0 && !eventName.trim()) ? 0.4 : 1 }}>
-              Next →
-            </button>
-          )}
-          {isLast && (
-            <button
-              onClick={eventType === 'board_game' ? handleSaveBoardGame : handleSaveAllPlay}
-              disabled={saving}
-              style={{ padding: '9px 24px', background: '#2e7d32', border: 'none', color: '#fff', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}>
-              {saving ? 'Creating...' : '✅ Create Event'}
-            </button>
-          )}
-        </div>
       </div>
     </div>
-    </>
   );
 }
 
-// ── Sub-components ─────────────────────────────────────────
-function WizardStep({ title, children }) {
+// ── All-Play Wizard (existing flow, slimmed) ──────────────────
+
+function AllPlayWizard() {
+  const navigate = useNavigate();
+  const { profile } = useAuth();
+  const [wizStep, setWizStep] = useState(1);
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [overallWebhook, setOverallWebhook] = useState('');
+  const [numDivisions, setNumDivisions] = useState(1);
+  const [seriesFormat, setSeriesFormat] = useState('single');
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  async function handleCreate() {
+    if (!name.trim() || !slug.trim()) { setMsg('Name and slug required.'); return; }
+    setSaving(true);
+    try {
+      const { data: ev, error } = await supabase
+        .from('events')
+        .insert({
+          name, slug, event_type: 'all_play', status: 'active',
+          discord_overall_webhook: overallWebhook || null,
+          num_divisions: numDivisions,
+          created_by: profile?.id,
+        })
+        .select().single();
+      if (error) throw error;
+      navigate(`/admin/events/${ev.id}`);
+    } catch (e) { setMsg(e.message); }
+    finally { setSaving(false); }
+  }
+
   return (
-    <div>
-      <h3 style={{ margin: '0 0 20px 0', fontSize: 18 }}>{title}</h3>
-      {children}
+    <div style={s.page}>
+      <Link to="/admin" style={s.back}>← Dashboard</Link>
+      <h1 style={s.title}>⚔️ New All-Play Tournament</h1>
+      {msg && <div style={s.msg}>{msg}</div>}
+
+      {wizStep === 1 && (
+        <div style={s.card}>
+          <h2 style={s.cardTitle}>Event Basics</h2>
+          <label style={s.label}>Event Name</label>
+          <input value={name} onChange={e => setName(e.target.value)} style={s.input} placeholder="PokeNexus Summer Tournament" />
+          <label style={s.label}>URL Slug</label>
+          <input value={slug} onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))} style={s.input} placeholder="summer-tournament-2026" />
+          <label style={s.label}>Overall Discord Webhook (optional)</label>
+          <input value={overallWebhook} onChange={e => setOverallWebhook(e.target.value)} style={s.input} placeholder="https://discord.com/api/webhooks/..." />
+          <div style={s.hint}>Posts full standings on every day commit. Per-team webhooks configured in event management.</div>
+          <div style={s.navRow}>
+            <button onClick={() => setWizStep(2)} style={s.nextBtn}>Next →</button>
+          </div>
+        </div>
+      )}
+
+      {wizStep === 2 && (
+        <div style={s.card}>
+          <h2 style={s.cardTitle}>Format</h2>
+          <label style={s.label}>Number of Divisions</label>
+          <input type="number" value={numDivisions} onChange={e => setNumDivisions(Number(e.target.value))} style={s.input} min="1" max="4" />
+          <label style={s.label}>Default Series Format</label>
+          <select value={seriesFormat} onChange={e => setSeriesFormat(e.target.value)} style={s.input}>
+            <option value="single">Single game</option>
+            <option value="best_of_3">Best of 3</option>
+            <option value="best_of_5">Best of 5</option>
+          </select>
+          <div style={s.navRow}>
+            <button onClick={() => setWizStep(1)} style={s.backBtn}>← Back</button>
+            <button onClick={handleCreate} disabled={saving} style={s.createBtn}>
+              {saving ? 'Creating...' : 'Create Event'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function FormField({ label, value, onChange, type = 'text', placeholder = '', disabled = false }) {
-  return (
-    <div style={{ marginBottom: 14 }}>
-      <label style={{ display: 'block', fontSize: 12, opacity: 0.7, marginBottom: 4 }}>{label}</label>
-      <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} disabled={disabled}
-        style={{ width: '100%', padding: '8px 12px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 14, boxSizing: 'border-box' }} />
-    </div>
-  );
-}
+// ── Shared Styles ─────────────────────────────────────────────
 
-function ToggleField({ label, value, onChange }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#13131f', borderRadius: 6 }}>
-      <span style={{ fontSize: 13 }}>{label}</span>
-      <button onClick={() => onChange(!value)}
-        style={{ padding: '4px 14px', background: value ? '#2e7d32' : '#4a1010', border: 'none', color: '#fff', borderRadius: 12, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
-        {value ? 'ON' : 'OFF'}
-      </button>
-    </div>
-  );
-}
-
-function EventTypeCard({ title, icon, description, onClick }) {
-  const [hover, setHover] = useState(false);
-  return (
-    <div onClick={onClick}
-      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-      style={{
-        flex: 1, padding: 24, background: hover ? '#1e1e2e' : '#13131f',
-        border: hover ? '2px solid #c62828' : '2px solid #2a2a3e',
-        borderRadius: 10, cursor: 'pointer', transition: 'all 0.15s',
-      }}>
-      <div style={{ fontSize: 36, marginBottom: 10 }}>{icon}</div>
-      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>{title}</div>
-      <div style={{ fontSize: 13, opacity: 0.65, lineHeight: 1.5 }}>{description}</div>
-    </div>
-  );
-}
+const s = {
+  page: { maxWidth: 720, margin: '0 auto', padding: '32px 16px', fontFamily: 'sans-serif' },
+  back: { color: '#888', textDecoration: 'none', fontSize: 13, display: 'block', marginBottom: 12 },
+  title: { color: '#fff', fontSize: 24, marginBottom: 6 },
+  subtitle: { color: '#888', fontSize: 15, marginBottom: 24 },
+  typeGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 },
+  typeCard: { background: '#1a1a1a', border: '1px solid #333', borderRadius: 10, padding: 20, cursor: 'pointer', textAlign: 'left', transition: 'border-color .15s', color: '#fff' },
+  typeCardDisabled: { opacity: 0.5, cursor: 'default', background: '#111' },
+  typeIcon: { fontSize: 32, marginBottom: 8 },
+  typeLabel: { fontWeight: 700, fontSize: 16, marginBottom: 4 },
+  typeDesc: { color: '#888', fontSize: 13, lineHeight: 1.5 },
+  comingSoon: { display: 'inline-block', background: '#333', color: '#888', borderRadius: 4, padding: '2px 8px', fontSize: 11, marginBottom: 6 },
+  stepRow: { display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid #333' },
+  step: { padding: '10px 20px', color: '#888', fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 },
+  stepActive: { color: '#fff', borderBottom: `2px solid ${ACC}`, fontWeight: 700 },
+  stepNum: { width: 20, height: 20, borderRadius: '50%', background: '#333', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 },
+  card: { background: '#1a1a1a', border: '1px solid #333', borderRadius: 10, padding: 24 },
+  cardTitle: { color: '#fff', fontSize: 17, marginTop: 0, marginBottom: 16 },
+  label: { display: 'block', color: '#aaa', fontSize: 13, marginBottom: 6, marginTop: 16 },
+  input: { width: '100%', boxSizing: 'border-box', background: '#111', color: '#fff', border: '1px solid #444', borderRadius: 6, padding: '8px 12px', fontSize: 14 },
+  hint: { color: '#666', fontSize: 12, marginTop: 4 },
+  radioRow: { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 },
+  radioLabel: { display: 'flex', alignItems: 'center', gap: 8, color: '#ccc', fontSize: 14, cursor: 'pointer' },
+  checkLabel: { display: 'flex', alignItems: 'center', gap: 8, color: '#ccc', fontSize: 14, marginTop: 16, cursor: 'pointer' },
+  twoCol: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 },
+  catRow: { display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' },
+  removeBtn: { background: 'none', color: '#c55', border: '1px solid #522', borderRadius: 6, padding: '6px 10px', cursor: 'pointer' },
+  addCatBtn: { background: 'none', color: ACC, border: `1px solid ${ACC}`, borderRadius: 6, padding: '7px 16px', cursor: 'pointer', marginTop: 4 },
+  navRow: { display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 },
+  nextBtn: { background: ACC, color: '#fff', border: 'none', borderRadius: 6, padding: '9px 20px', cursor: 'pointer', fontWeight: 700 },
+  backBtn: { background: '#222', color: '#ccc', border: '1px solid #444', borderRadius: 6, padding: '9px 16px', cursor: 'pointer' },
+  createBtn: { background: ACC, color: '#fff', border: 'none', borderRadius: 6, padding: '10px 24px', cursor: 'pointer', fontWeight: 700, fontSize: 15 },
+  msg: { background: '#1e1e1e', border: '1px solid #553', borderRadius: 6, padding: '10px 14px', color: '#ffb', marginBottom: 16 },
+};

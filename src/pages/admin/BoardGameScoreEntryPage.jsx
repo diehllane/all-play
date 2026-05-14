@@ -1,417 +1,418 @@
 // src/pages/admin/BoardGameScoreEntryPage.jsx
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+// Dropdown-style score entry for Board Game events.
+// Fires Discord webhooks (overall + per-player) on Commit Day.
+
+import { useState, useEffect, useRef } from 'react';
+import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-import { calcMoves, resolveMovement } from '../../lib/boardgame';
-import Navbar from '../../components/Navbar';
+import { fireBoardGameWebhooks } from '../../lib/discord';
+
+const ACC = '#c62828';
 
 export default function BoardGameScoreEntryPage() {
   const { eventId } = useParams();
-  const { user, profile } = useAuth();
+  const { profile } = useAuth();
+  const isRunner = profile?.role === 'event_runner';
 
-  const [event, setEvent]         = useState(null);
-  const [config, setConfig]       = useState(null);
-  const [players, setPlayers]     = useState([]);
+  const [event, setEvent] = useState(null);
+  const [config, setConfig] = useState({});
+  const [players, setPlayers] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [positions, setPositions] = useState({});
-  const [squares, setSquares]     = useState([]);
+  const [entries, setEntries] = useState([]);
+  const [squares, setSquares] = useState([]);
+  const [dayNumber, setDayNumber] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [committing, setCommitting] = useState(false);
+  const [msg, setMsg] = useState('');
 
-  const [currentDay, setCurrentDay] = useState(1);
-  const [lastCommit, setLastCommit] = useState(null);
-
-  // Entry form state
   const [selectedPlayer, setSelectedPlayer] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
-  const [adding, setAdding]       = useState(false);
 
-  // Per-player per-day tallies (realtime)
-  const [dayEntries, setDayEntries] = useState([]); // raw rows for current day
+  const realtimeRef = useRef(null);
 
-  const [committing, setCommitting] = useState(false);
-  const [undoing, setUndoing]       = useState(false);
-  const [message, setMessage]       = useState(null);
-  const [loading, setLoading]       = useState(true);
-
-  const isRunner = profile?.role === 'event_runner';
-  const themeColor = config?.theme_color || '#c62828';
-
-  // ── Initial load ─────────────────────────────────────────
-  const load = useCallback(async () => {
-    const [evRes, cfgRes, plRes, catRes, posRes, sqRes] = await Promise.all([
-      supabase.from('events').select('*').eq('id', eventId).single(),
-      supabase.from('board_game_config').select('*').eq('event_id', eventId).single(),
-      supabase.from('board_players').select('*').eq('event_id', eventId).order('name'),
-      supabase.from('categories').select('*').eq('event_id', eventId).order('name'),
-      supabase.from('board_player_positions').select('*').eq('event_id', eventId),
-      supabase.from('board_squares').select('*').eq('event_id', eventId),
-    ]);
-    setEvent(evRes.data);
-    setConfig(cfgRes.data);
-    setPlayers(plRes.data || []);
-    setCategories(catRes.data || []);
-    const posMap = {};
-    (posRes.data || []).forEach(p => { posMap[p.player_id] = p.position; });
-    setPositions(posMap);
-    setSquares(sqRes.data || []);
-
-    // Determine current day
-    const { data: commits } = await supabase
-      .from('board_commits')
-      .select('*')
-      .eq('event_id', eventId)
-      .is('reverted_at', null)
-      .order('day_number', { ascending: false })
-      .limit(1);
-    const last = commits?.[0] || null;
-    setLastCommit(last);
-    setCurrentDay((last?.day_number ?? 0) + 1);
-    setLoading(false);
+  useEffect(() => {
+    loadAll();
+    return () => { realtimeRef.current?.unsubscribe(); };
   }, [eventId]);
 
-  // ── Load current day entries ──────────────────────────────
-  const loadDayEntries = useCallback(async (day) => {
+  async function loadAll() {
+    setLoading(true);
+    try {
+      const [evRes, catRes, playerRes, configRes, squaresRes] = await Promise.all([
+        supabase.from('events').select('*').eq('id', eventId).single(),
+        supabase.from('categories').select('*').eq('event_id', eventId).order('name'),
+        supabase.from('board_players').select('*').eq('event_id', eventId).order('name'),
+        supabase.from('board_game_config').select('*').eq('event_id', eventId).single(),
+        supabase.from('board_squares').select('*').eq('event_id', eventId),
+      ]);
+
+      setEvent(evRes.data);
+      setCategories(catRes.data || []);
+      setPlayers(playerRes.data || []);
+      setConfig(configRes.data || {});
+      setSquares(squaresRes.data || []);
+
+      // Find current day
+      const { data: commits } = await supabase
+        .from('board_commits')
+        .select('day_number')
+        .eq('event_id', eventId)
+        .order('day_number', { ascending: false })
+        .limit(1);
+      const day = (commits?.[0]?.day_number ?? 0) + 1;
+      setDayNumber(day);
+
+      await loadEntries(day);
+
+      realtimeRef.current = supabase
+        .channel(`bg-entry-${eventId}`)
+        .on('postgres_changes', {
+          event: '*', schema: 'public', table: 'board_score_entries',
+          filter: `event_id=eq.${eventId}`,
+        }, () => loadEntries(day))
+        .subscribe();
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadEntries(day) {
     const { data } = await supabase
       .from('board_score_entries')
-      .select('*, categories(name, multiplier)')
+      .select('*, board_players(id, name, avatar_url), categories(id, name, multiplier)')
       .eq('event_id', eventId)
-      .eq('day_number', day ?? currentDay)
+      .eq('day_number', day)
+      .eq('committed', false)
       .order('created_at');
-    setDayEntries(data || []);
-  }, [eventId, currentDay]);
+    setEntries(data || []);
+  }
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useEffect(() => {
-    if (!loading) loadDayEntries(currentDay);
-  }, [currentDay, loading, loadDayEntries]);
-
-  // ── Realtime subscription for concurrent entry ────────────
-  useEffect(() => {
-    if (loading) return;
-    const channel = supabase
-      .channel('score_entry_' + eventId + '_' + currentDay)
-      .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'board_score_entries',
-        filter: `event_id=eq.${eventId}`
-      }, () => loadDayEntries(currentDay))
-      .subscribe();
-    return () => supabase.removeChannel(channel);
-  }, [eventId, currentDay, loading, loadDayEntries]);
-
-  // ── Add single encounter entry ────────────────────────────
-  const handleAddEntry = async () => {
-    if (!selectedPlayer || !selectedCategory) return;
+  async function handleAdd() {
+    if (!selectedPlayer || !selectedCategory) {
+      setMsg('Select a player and category.');
+      return;
+    }
     const cat = categories.find(c => c.id === selectedCategory);
-    if (!cat) return;
-    setAdding(true);
     const { error } = await supabase.from('board_score_entries').insert({
       event_id: eventId,
       player_id: selectedPlayer,
       category_id: selectedCategory,
-      day_number: currentDay,
-      points: cat.multiplier || 0,
-      entered_by: user?.id,
+      encounter_count: 1,
+      points_each: cat?.multiplier || 0,
+      day_number: dayNumber,
+      committed: false,
     });
-    if (error) {
-      setMessage({ type: 'error', text: error.message });
+    if (error) setMsg(error.message);
+    else setMsg('');
+  }
+
+  async function handleRemove(id) {
+    await supabase.from('board_score_entries').delete().eq('id', id);
+    await loadEntries(dayNumber);
+  }
+
+  function buildTally() {
+    const tally = {};
+    for (const e of entries) {
+      const pid = e.player_id;
+      if (!tally[pid]) tally[pid] = { player: e.board_players, total: 0, items: [] };
+      tally[pid].total += e.points_each;
+      tally[pid].items.push({ id: e.id, catName: e.categories?.name, pts: e.points_each });
     }
-    // Don't reset selectedPlayer — scorer likely entering multiple for same player
-    setAdding(false);
-  };
+    return Object.values(tally);
+  }
 
-  // ── Remove a single entry ─────────────────────────────────
-  const handleRemoveEntry = async (entryId) => {
-    await supabase.from('board_score_entries').delete().eq('id', entryId);
-  };
+  function getSquare(num) {
+    return squares.find(sq => sq.square_number === num);
+  }
 
-  // ── Commit day ───────────────────────────────────────────
-  const handleCommit = async () => {
+  function resolveSquare(position, squareList) {
+    let pos = position;
+    const visited = new Set();
+    while (!visited.has(pos)) {
+      visited.add(pos);
+      const sq = squareList.find(s => s.square_number === pos);
+      if (!sq) break;
+      if (sq.type === 'bonus_jump' || sq.type === 'penalty_jump') {
+        pos = sq.jump_to;
+      } else if (sq.type === 'bonus_small') {
+        pos = Math.min(pos + (sq.move_amount || 0), config.track_length || 252);
+        break;
+      } else if (sq.type === 'penalty_small') {
+        pos = Math.max(pos - (sq.move_amount || 0), 0);
+        break;
+      } else break;
+    }
+    return pos;
+  }
+
+  async function handleCommit() {
     if (!isRunner) return;
+    if (!confirm(`Commit Day ${dayNumber}?`)) return;
     setCommitting(true);
-    setMessage(null);
+    setMsg('');
     try {
-      // Build snapshot of current positions
-      const snapshot = {};
-      players.forEach(p => { snapshot[p.id] = positions[p.id] || 0; });
+      // Fetch all uncommitted entries
+      const { data: allEntries } = await supabase
+        .from('board_score_entries')
+        .select('*, categories(multiplier)')
+        .eq('event_id', eventId)
+        .eq('day_number', dayNumber)
+        .eq('committed', false);
 
-      // Tally scores per player for today
-      const playerTotals = {};
-      dayEntries.forEach(e => {
-        playerTotals[e.player_id] = (playerTotals[e.player_id] || 0) + (e.points || 0);
+      // Compute raw score per player
+      const rawScores = {};
+      for (const e of allEntries || []) {
+        rawScores[e.player_id] = (rawScores[e.player_id] || 0) + e.points_each;
+      }
+
+      // Load current positions
+      const { data: positions } = await supabase
+        .from('board_player_positions')
+        .select('*')
+        .eq('event_id', eventId);
+
+      const posMap = {};
+      for (const p of positions || []) posMap[p.player_id] = p.position;
+
+      // Snapshot for undo
+      await supabase.from('board_commits').insert({
+        event_id: eventId,
+        day_number: dayNumber,
+        pre_commit_snapshot: { positions: posMap },
       });
 
-      // Calculate new positions
+      const trackLen = config.track_length || 252;
+      const divisor = config.score_divisor || 1;
+      const operation = config.score_operation || 'divide';
+      const rounding = config.score_rounding || 'ceil';
+      const minMoves = config.min_moves_per_day || 0;
+      const maxMoves = config.max_moves_per_day || 0;
+
       const newPositions = {};
-      players.forEach(p => {
-        const rawScore = playerTotals[p.id] || 0;
-        const moves = calcMoves(rawScore, config);
-        const { finalPosition } = resolveMovement(positions[p.id] || 0, moves, squares, config.track_length || 252);
-        newPositions[p.id] = finalPosition;
-      });
+      const badgeAwards = {};
+
+      for (const player of players) {
+        const raw = rawScores[player.id] || 0;
+        let moves = operation === 'multiply' ? raw * divisor : raw / divisor;
+        if (rounding === 'ceil') moves = Math.ceil(moves);
+        else if (rounding === 'floor') moves = Math.floor(moves);
+        else moves = Math.round(moves);
+        if (minMoves > 0) moves = Math.max(moves, minMoves);
+        if (maxMoves > 0) moves = Math.min(moves, maxMoves);
+
+        const oldPos = posMap[player.id] || 0;
+        const rawNewPos = Math.min(oldPos + moves, trackLen);
+
+        // Check for gym passes
+        const passedGyms = squares.filter(sq =>
+          sq.type === 'gym' && sq.square_number > oldPos && sq.square_number <= rawNewPos
+        );
+        if (passedGyms.length > 0) badgeAwards[player.id] = passedGyms;
+
+        const finalPos = resolveSquare(rawNewPos, squares);
+        newPositions[player.id] = finalPos;
+      }
 
       // Upsert positions
-      const upserts = players.map(p => ({
-        event_id: eventId,
-        player_id: p.id,
-        position: newPositions[p.id],
-        last_updated: new Date().toISOString(),
+      const posUpserts = Object.entries(newPositions).map(([pid, pos]) => ({
+        event_id: eventId, player_id: pid, position: pos,
       }));
-      const { error: posErr } = await supabase
-        .from('board_player_positions')
-        .upsert(upserts, { onConflict: 'event_id,player_id' });
-      if (posErr) throw posErr;
+      if (posUpserts.length > 0) {
+        await supabase.from('board_player_positions')
+          .upsert(posUpserts, { onConflict: 'event_id,player_id' });
+      }
 
-      // Award prizes for players who landed EXACTLY on a prize square
-      const prizeSquares = squares.filter(s => s.type === 'prize');
-      if (prizeSquares.length > 0) {
-        // Load already-earned prizes so we don't double-award
-        const { data: alreadyEarned } = await supabase
-          .from('board_prizes_earned')
-          .select('player_id, square_number')
-          .eq('event_id', eventId);
-        const earnedSet = new Set((alreadyEarned || []).map(e => `${e.player_id}:${e.square_number}`));
-
-        const prizeInserts = [];
-        players.forEach(p => {
-          const finalPos = newPositions[p.id];
-          prizeSquares.forEach(prize => {
-            const key = `${p.id}:${prize.square_number}`;
-            if (finalPos === prize.square_number && !earnedSet.has(key)) {
-              prizeInserts.push({
-                event_id: eventId,
-                player_id: p.id,
-                square_number: prize.square_number,
-                day_number: currentDay,
-              });
-            }
-          });
-        });
-        if (prizeInserts.length > 0) {
-          await supabase.from('board_prizes_earned').insert(prizeInserts);
+      // Award prizes for exact landings
+      for (const [pid, pos] of Object.entries(newPositions)) {
+        const sq = squares.find(s => s.square_number === pos && s.type === 'prize');
+        if (sq) {
+          await supabase.from('board_prizes_earned').upsert({
+            event_id: eventId, player_id: pid, square_number: pos,
+          }, { onConflict: 'event_id,player_id,square_number', ignoreDuplicates: true });
         }
       }
 
-      // Insert commit record
-      const { error: commitErr } = await supabase.from('board_commits').insert({
-        event_id: eventId,
-        day_number: currentDay,
-        committed_by: user?.id,
-        pre_commit_snapshot: snapshot,
-      });
-      if (commitErr) throw commitErr;
+      // Mark entries committed
+      if (allEntries?.length > 0) {
+        await supabase.from('board_score_entries')
+          .update({ committed: true })
+          .in('id', allEntries.map(e => e.id));
+      }
 
-      setMessage({ type: 'success', text: `Day ${currentDay} committed! All positions updated.` });
-      await load();
+      // Fire Discord webhooks
+      const sortedPlayers = players
+        .map(p => ({
+          name: p.name,
+          position: newPositions[p.id] || 0,
+          badges: (badgeAwards[p.id]?.length || 0),
+        }))
+        .sort((a, b) => b.position - a.position);
+
+      const playerWebhooks = players
+        .filter(p => p.discord_webhook_url)
+        .map(p => ({
+          playerName: p.name,
+          webhookUrl: p.discord_webhook_url,
+          todayScore: rawScores[p.id] || 0,
+          totalPosition: newPositions[p.id] || 0,
+          badges: badgeAwards[p.id]?.length || 0,
+        }));
+
+      if (event?.discord_overall_webhook || playerWebhooks.length > 0) {
+        await fireBoardGameWebhooks({
+          eventName: event?.name || 'Board Game',
+          dayNumber,
+          publicUrl: `${window.location.origin}/all-play/board/${eventId}`,
+          themeColor: config.theme_color || '#c62828',
+          overallWebhook: event?.discord_overall_webhook,
+          playerWebhooks,
+          allPlayers: sortedPlayers,
+        });
+      }
+
+      setMsg(`Day ${dayNumber} committed!`);
+      setDayNumber(d => d + 1);
+      setEntries([]);
     } catch (e) {
-      setMessage({ type: 'error', text: e.message });
+      setMsg('Commit error: ' + e.message);
     } finally {
       setCommitting(false);
     }
-  };
+  }
 
-  // ── Undo last commit ─────────────────────────────────────
-  const handleUndo = async () => {
-    if (!isRunner || !lastCommit) return;
-    setUndoing(true);
-    setMessage(null);
-    try {
-      const snapshot = lastCommit.pre_commit_snapshot;
-      if (!snapshot) throw new Error('No snapshot available for this commit.');
+  async function handleUndo() {
+    if (!isRunner) return;
+    const prevDay = dayNumber - 1;
+    if (prevDay < 1) { setMsg('Nothing to undo.'); return; }
+    if (!confirm(`Undo Day ${prevDay}?`)) return;
 
-      // Restore positions from snapshot
-      const upserts = players.map(p => ({
-        event_id: eventId,
-        player_id: p.id,
-        position: snapshot[p.id] ?? 0,
-        last_updated: new Date().toISOString(),
+    const { data: commits } = await supabase
+      .from('board_commits')
+      .select('*')
+      .eq('event_id', eventId)
+      .eq('day_number', prevDay)
+      .order('committed_at', { ascending: false })
+      .limit(1);
+
+    if (!commits?.length) { setMsg('No commit record found.'); return; }
+    const snapshot = commits[0].pre_commit_snapshot;
+
+    // Restore positions
+    if (snapshot?.positions) {
+      const restores = Object.entries(snapshot.positions).map(([pid, pos]) => ({
+        event_id: eventId, player_id: pid, position: pos,
       }));
-      const { error: posErr } = await supabase
-        .from('board_player_positions')
-        .upsert(upserts, { onConflict: 'event_id,player_id' });
-      if (posErr) throw posErr;
-
-      // Roll back any prizes earned on this day
-      await supabase
-        .from('board_prizes_earned')
-        .delete()
-        .eq('event_id', eventId)
-        .eq('day_number', lastCommit.day_number);
-
-      // Mark commit as reverted
-      const { error: revertErr } = await supabase
-        .from('board_commits')
-        .update({ reverted_at: new Date().toISOString(), reverted_by: user?.id })
-        .eq('id', lastCommit.id);
-      if (revertErr) throw revertErr;
-
-      setMessage({ type: 'success', text: `Day ${lastCommit.day_number} reverted. Positions restored. Fix scores and re-commit.` });
-      await load();
-    } catch (e) {
-      setMessage({ type: 'error', text: e.message });
-    } finally {
-      setUndoing(false);
+      await supabase.from('board_player_positions')
+        .upsert(restores, { onConflict: 'event_id,player_id' });
     }
-  };
 
-  // ── Per-player tally from dayEntries ─────────────────────
-  const playerTallies = {};
-  players.forEach(p => { playerTallies[p.id] = { total: 0, entries: [] }; });
-  dayEntries.forEach(e => {
-    if (!playerTallies[e.player_id]) return;
-    playerTallies[e.player_id].total += e.points || 0;
-    playerTallies[e.player_id].entries.push(e);
-  });
+    // Delete prizes earned on this day (approximation: delete prizes for positions that were moved to)
+    // and un-commit entries
+    await supabase.from('board_score_entries')
+      .update({ committed: false })
+      .eq('event_id', eventId).eq('day_number', prevDay).eq('committed', true);
 
-  // Preview moves for selected player
-  const previewMoves = selectedPlayer && config
-    ? calcMoves(playerTallies[selectedPlayer]?.total || 0, config)
-    : null;
-  const currentPos = selectedPlayer ? (positions[selectedPlayer] || 0) : 0;
-  const previewPos = previewMoves != null
-    ? resolveMovement(currentPos, previewMoves, squares, config?.track_length || 252).finalPosition
-    : null;
+    await supabase.from('board_commits').delete().eq('id', commits[0].id);
 
-  if (loading) return <><Navbar /><div className="loading">Loading...</div></>;
+    setDayNumber(prevDay);
+    await loadEntries(prevDay);
+    setMsg(`Day ${prevDay} reverted.`);
+  }
+
+  if (loading) return <div style={s.loading}>Loading...</div>;
+  const tally = buildTally();
 
   return (
-    <>
-      <Navbar />
-      <div style={{ padding: 24, maxWidth: 900, margin: '0 auto', color: '#fff' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <h2 style={{ margin: 0 }}>Score Entry — Day {currentDay}</h2>
-        <span style={{ fontSize: 13, opacity: 0.6 }}>{event?.name}</span>
-      </div>
-
-      {message && (
-        <div style={{ padding: '10px 16px', marginBottom: 16, borderRadius: 6, background: message.type === 'error' ? '#4a1010' : '#0f3d1f', border: `1px solid ${message.type === 'error' ? '#c62828' : '#2e7d32'}` }}>
-          {message.text}
-          <button onClick={() => setMessage(null)} style={{ float: 'right', background: 'none', border: 'none', color: '#fff', cursor: 'pointer' }}>✕</button>
+    <div style={s.page}>
+      <div style={s.header}>
+        <div>
+          <Link to={`/admin/board/${eventId}`} style={s.back}>← Back to Event</Link>
+          <h1 style={s.title}>{event?.name}</h1>
+          <span style={s.dayBadge}>Day {dayNumber}</span>
         </div>
-      )}
-
-      {/* Entry form */}
-      <div style={{ background: '#1e1e2e', borderRadius: 8, padding: 20, marginBottom: 24, border: `1px solid ${themeColor}` }}>
-        <h3 style={{ margin: '0 0 16px 0', fontSize: 15 }}>Add Encounter</h3>
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          {/* Player dropdown */}
-          <div style={{ flex: '1 1 180px' }}>
-            <label style={{ display: 'block', fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Player</label>
-            <select value={selectedPlayer} onChange={e => setSelectedPlayer(e.target.value)}
-              style={{ width: '100%', padding: '8px 12px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 14 }}>
-              <option value="">Select player...</option>
-              {players.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Category dropdown */}
-          <div style={{ flex: '1 1 220px' }}>
-            <label style={{ display: 'block', fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Encounter Category</label>
-            <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)}
-              style={{ width: '100%', padding: '8px 12px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 14 }}>
-              <option value="">Select category...</option>
-              {categories.map(c => (
-                <option key={c.id} value={c.id}>{c.name} ({c.multiplier} pts)</option>
-              ))}
-            </select>
-          </div>
-
-          <button
-            onClick={handleAddEntry}
-            disabled={!selectedPlayer || !selectedCategory || adding}
-            style={{ padding: '9px 20px', background: themeColor, border: 'none', color: '#fff', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 14, opacity: (!selectedPlayer || !selectedCategory) ? 0.5 : 1 }}>
-            {adding ? 'Adding...' : '+ Add'}
-          </button>
-        </div>
-
-        {/* Preview for selected player */}
-        {selectedPlayer && previewMoves !== null && (
-          <div style={{ marginTop: 14, padding: '10px 14px', background: '#13131f', borderRadius: 6, fontSize: 13 }}>
-            <span style={{ opacity: 0.7 }}>Preview for </span>
-            <strong>{players.find(p => p.id === selectedPlayer)?.name}</strong>
-            <span style={{ marginLeft: 12, opacity: 0.7 }}>Today's score: </span>
-            <strong style={{ color: '#ffd700' }}>{playerTallies[selectedPlayer]?.total || 0} pts</strong>
-            <span style={{ margin: '0 8px', opacity: 0.4 }}>→</span>
-            <strong style={{ color: '#4caf50' }}>{previewMoves} moves</strong>
-            <span style={{ margin: '0 8px', opacity: 0.4 }}>→</span>
-            <span>Sq {currentPos}</span>
-            <span style={{ margin: '0 6px', opacity: 0.4 }}>→</span>
-            <strong style={{ color: config?.theme_color || '#c62828' }}>Sq {previewPos}</strong>
+        {isRunner && (
+          <div style={s.headerActions}>
+            <button onClick={handleCommit} disabled={committing || entries.length === 0} style={s.commitBtn}>
+              {committing ? 'Committing...' : `Commit Day ${dayNumber}`}
+            </button>
+            <button onClick={handleUndo} disabled={committing || dayNumber <= 1} style={s.undoBtn}>
+              Undo Last Day
+            </button>
           </div>
         )}
       </div>
 
-      {/* Per-player tallies */}
-      <div style={{ marginBottom: 24 }}>
-        <h3 style={{ fontSize: 15, marginBottom: 12 }}>Day {currentDay} — Running Tallies</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 }}>
-          {players.map(p => {
-            const tally = playerTallies[p.id];
-            const moves = config ? calcMoves(tally.total, config) : 0;
-            const pos = positions[p.id] || 0;
-            const { finalPosition } = config
-              ? resolveMovement(pos, moves, squares, config.track_length || 252)
-              : { finalPosition: pos };
-            return (
-              <div key={p.id} style={{ background: '#1e1e2e', borderRadius: 8, padding: 14, border: '1px solid #2a2a3e' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <strong style={{ fontSize: 14 }}>{p.name}</strong>
-                  <span style={{ fontSize: 13, color: '#ffd700', fontWeight: 700 }}>{tally.total} pts</span>
-                </div>
-                <div style={{ fontSize: 12, opacity: 0.6, marginBottom: 8 }}>
-                  {tally.entries.length} encounter{tally.entries.length !== 1 ? 's' : ''} · {moves} moves · Sq {pos} → {finalPosition}
-                </div>
-                {/* Entry list */}
-                {tally.entries.length > 0 && (
-                  <div style={{ maxHeight: 150, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    {tally.entries.map((e, i) => (
-                      <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, padding: '3px 6px', background: '#13131f', borderRadius: 4 }}>
-                        <span>{e.categories?.name || 'Unknown'}</span>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <span style={{ color: '#4caf50' }}>+{e.points}</span>
-                          <button onClick={() => handleRemoveEntry(e.id)}
-                            style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 13, padding: 0, lineHeight: 1 }}>✕</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {tally.entries.length === 0 && (
-                  <div style={{ fontSize: 12, opacity: 0.35, fontStyle: 'italic' }}>No entries yet</div>
-                )}
-              </div>
-            );
-          })}
-        </div>
+      {msg && <div style={s.msg}>{msg}</div>}
+
+      <div style={s.entryRow}>
+        <select value={selectedPlayer} onChange={e => setSelectedPlayer(e.target.value)} style={s.select}>
+          <option value="">— Select Player —</option>
+          {players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} style={s.select}>
+          <option value="">— Select Category —</option>
+          {categories.map(c => <option key={c.id} value={c.id}>{c.name} ({c.multiplier} pts)</option>)}
+        </select>
+        <button onClick={handleAdd} style={s.addBtn}>+ Add</button>
       </div>
 
-      {/* Commit / Undo — event_runner only */}
-      {isRunner && (
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', borderTop: '1px solid #2a2a3e', paddingTop: 20 }}>
-          <button
-            onClick={handleCommit}
-            disabled={committing || dayEntries.length === 0}
-            style={{ padding: '10px 24px', background: '#2e7d32', border: 'none', color: '#fff', borderRadius: 6, cursor: 'pointer', fontWeight: 700, fontSize: 14, opacity: dayEntries.length === 0 ? 0.4 : 1 }}>
-            {committing ? 'Committing...' : `✅ Commit Day ${currentDay}`}
-          </button>
-          {lastCommit && !lastCommit.reverted_at && (
-            <button
-              onClick={handleUndo}
-              disabled={undoing}
-              style={{ padding: '10px 24px', background: '#4a1010', border: '1px solid #c62828', color: '#fff', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 14 }}>
-              {undoing ? 'Reverting...' : `↩ Undo Day ${lastCommit.day_number}`}
-            </button>
-          )}
-          <span style={{ fontSize: 12, opacity: 0.5 }}>
-            {dayEntries.length} entries across {Object.values(playerTallies).filter(t => t.entries.length > 0).length} players
-          </span>
+      {tally.length === 0 ? (
+        <div style={s.empty}>No entries yet for Day {dayNumber}.</div>
+      ) : (
+        <div style={s.tallyGrid}>
+          {tally.map(({ player, total, items }) => (
+            <div key={player?.id} style={s.card}>
+              <div style={s.cardHeader}>
+                <div style={s.cardMeta}>
+                  {player?.avatar_url && <img src={player.avatar_url} style={s.cardAvatar} alt="" />}
+                  <span style={s.cardName}>{player?.name}</span>
+                </div>
+                <span style={s.cardTotal}>{total} pts</span>
+              </div>
+              <div style={s.cardItems}>
+                {items.map(item => (
+                  <div key={item.id} style={s.itemRow}>
+                    <span style={s.itemName}>{item.catName}</span>
+                    <span style={s.itemPts}>+{item.pts}</span>
+                    <button onClick={() => handleRemove(item.id)} style={s.removeBtn}>✕</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
-    </>
   );
 }
+
+const s = {
+  page: { maxWidth: 960, margin: '0 auto', padding: '24px 16px', fontFamily: 'sans-serif' },
+  loading: { padding: 40, textAlign: 'center', color: '#aaa' },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 16 },
+  back: { color: '#888', textDecoration: 'none', fontSize: 13 },
+  title: { margin: '4px 0', fontSize: 22, color: '#fff' },
+  dayBadge: { display: 'inline-block', background: ACC, color: '#fff', borderRadius: 4, padding: '2px 10px', fontSize: 13, marginTop: 4 },
+  headerActions: { display: 'flex', gap: 8, flexWrap: 'wrap' },
+  commitBtn: { background: ACC, color: '#fff', border: 'none', borderRadius: 6, padding: '10px 20px', cursor: 'pointer', fontWeight: 700 },
+  undoBtn: { background: '#333', color: '#ccc', border: '1px solid #444', borderRadius: 6, padding: '10px 16px', cursor: 'pointer' },
+  msg: { background: '#1e1e1e', border: '1px solid #444', borderRadius: 6, padding: '10px 14px', color: '#ffb', marginBottom: 16 },
+  entryRow: { display: 'flex', gap: 10, marginBottom: 24, flexWrap: 'wrap', alignItems: 'center' },
+  select: { background: '#1a1a1a', color: '#fff', border: '1px solid #444', borderRadius: 6, padding: '9px 12px', flex: 1, minWidth: 180, fontSize: 14 },
+  addBtn: { background: ACC, color: '#fff', border: 'none', borderRadius: 6, padding: '9px 20px', cursor: 'pointer', fontWeight: 700, whiteSpace: 'nowrap' },
+  empty: { color: '#555', textAlign: 'center', padding: 60, fontSize: 15 },
+  tallyGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 },
+  card: { background: '#1a1a1a', border: '1px solid #333', borderRadius: 8, overflow: 'hidden' },
+  cardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#222', padding: '10px 14px', borderBottom: '1px solid #333' },
+  cardMeta: { display: 'flex', alignItems: 'center', gap: 10 },
+  cardAvatar: { width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' },
+  cardName: { fontWeight: 700, color: '#fff', fontSize: 14 },
+  cardTotal: { color: ACC, fontWeight: 700, fontSize: 18 },
+  cardItems: { padding: '8px 14px' },
+  itemRow: { display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderBottom: '1px solid #222' },
+  itemName: { flex: 1, color: '#ccc', fontSize: 13 },
+  itemPts: { color: '#4caf50', fontSize: 13, fontWeight: 700, minWidth: 40, textAlign: 'right' },
+  removeBtn: { background: 'none', border: 'none', color: '#555', cursor: 'pointer', padding: '0 4px', fontSize: 14 },
+};
