@@ -143,9 +143,30 @@ export default function EventDetailPage() {
       while (bracketSize < sorted.length) bracketSize *= 2
       const losersBracket = generateLosersBracket(bracketSize, id)
 
+      const allMatches = [...winnersBracket, ...losersBracket]
+
+      // Auto-advance bye winners into round 2 slots
+      const round1Winners = allMatches.filter(
+        m => m.bracket_type === 'winners' && m.round_number === 1 && m.is_bye && m.winner_id
+      ).sort((a, b) => a.match_number - b.match_number)
+
+      const round2Matches = allMatches.filter(
+        m => m.bracket_type === 'winners' && m.round_number === 2 && !m.is_bye
+      ).sort((a, b) => a.match_number - b.match_number)
+
+      round1Winners.forEach((byeMatch, i) => {
+        const nextMatchIndex = Math.floor(i / 2)
+        const nextMatch = round2Matches[nextMatchIndex]
+        if (!nextMatch) return
+        const slot = i % 2 === 0 ? 'team1_id' : 'team2_id'
+        // Only fill if that slot is still empty
+        if (!nextMatch[slot]) {
+          nextMatch[slot] = byeMatch.winner_id
+        }
+      })
+
       await supabase.from('playoff_bracket').delete().eq('event_id', id)
 
-      const allMatches = [...winnersBracket, ...losersBracket]
       if (allMatches.length > 0) {
         const { error } = await supabase.from('playoff_bracket').insert(allMatches)
         if (error) throw error
