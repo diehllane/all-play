@@ -109,14 +109,6 @@ export default function CreateEventPage() {
         if (cErr) throw cErr;
       }
 
-      // 4. Bracket config
-      if (bracketConfig.rounds?.length) {
-        const { error: bErr } = await supabase.from('events').update({
-          bracket_round_config: bracketConfig,
-        }).eq('id', ev.id);
-        if (bErr) throw bErr;
-      }
-
       navigate(`/admin/events/${ev.id}`);
     } catch (e) {
       setError(e.message);
