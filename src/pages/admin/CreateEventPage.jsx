@@ -109,6 +109,25 @@ export default function CreateEventPage() {
         if (cErr) throw cErr;
       }
 
+      // 4. Bracket config — default 4 rounds each for winners and losers
+      const bracketRows = [];
+      const formats = bracketConfig.rounds || [];
+      ['winners', 'losers'].forEach(bracketType => {
+        [1, 2, 3, 4].forEach(round => {
+          const format = formats[round - 1]?.format || 'single';
+          bracketRows.push({
+            event_id: ev.id,
+            bracket_type: bracketType,
+            round_number: round,
+            round_name: null,
+            format,
+            days_per_game: 1,
+          });
+        });
+      });
+      const { error: bErr } = await supabase.from('bracket_round_config').insert(bracketRows);
+      if (bErr) throw bErr;
+
       navigate(`/admin/events/${ev.id}`);
     } catch (e) {
       setError(e.message);

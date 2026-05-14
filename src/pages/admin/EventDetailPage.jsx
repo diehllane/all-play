@@ -46,6 +46,34 @@ export default function EventDetailPage() {
     setLoading(false)
   }
 
+  async function generateBracketConfig() {
+    setSaving(true)
+    setMessage(null)
+    try {
+      await supabase.from('bracket_round_config').delete().eq('event_id', id)
+      const bracketRows = []
+      ;['winners', 'losers'].forEach(bracketType => {
+        ;[1, 2, 3, 4].forEach(round => {
+          bracketRows.push({
+            event_id: id,
+            bracket_type: bracketType,
+            round_number: round,
+            round_name: null,
+            format: 'single',
+            days_per_game: 1,
+          })
+        })
+      })
+      const { error } = await supabase.from('bracket_round_config').insert(bracketRows)
+      if (error) throw error
+      await fetchAll()
+      setMessage({ type: 'success', text: 'Bracket config generated with default settings.' })
+    } catch (err) {
+      setMessage({ type: 'error', text: err.message })
+    }
+    setSaving(false)
+  }
+
   async function generateSchedule() {
     setSaving(true)
     setMessage(null)
@@ -299,7 +327,12 @@ export default function EventDetailPage() {
               <div className="card">
                 <div className="card-title">Winner's Bracket</div>
                 {winnersConfig.length === 0 ? (
-                  <div className="empty-state" style={{ padding: '1rem' }}><p>No bracket config found. Was this event created before bracket config was added?</p></div>
+                  <div className="empty-state" style={{ padding: '1rem' }}>
+                    <p>No bracket config found.</p>
+                    <button className="btn btn-primary btn-sm" style={{ marginTop: '0.5rem' }} disabled={saving} onClick={generateBracketConfig}>
+                      Generate Default Config
+                    </button>
+                  </div>
                 ) : (
                   <div className="table-container">
                     <table>
