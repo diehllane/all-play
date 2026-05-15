@@ -113,6 +113,10 @@ export default function BoardGameEventDetailPage() {
             style={{ padding: '8px 16px', background: themeColor, border: 'none', color: '#fff', borderRadius: 6, textDecoration: 'none', fontSize: 13, fontWeight: 600 }}>
             📝 Score Entry
           </Link>
+          <Link to={`/admin/board/${eventId}/edit`}
+            style={{ padding: '8px 16px', background: '#1a2a3a', border: '1px solid #1565c0', color: '#fff', borderRadius: 6, textDecoration: 'none', fontSize: 13 }}>
+            ✏️ Edit Board
+          </Link>
           <button onClick={handleExport}
             style={{ padding: '8px 16px', background: '#1a3a1a', border: '1px solid #2e7d32', color: '#fff', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
             📥 Export XLSX
