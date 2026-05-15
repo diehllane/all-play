@@ -3,7 +3,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { buildGrid, squareColor, calcBadges } from '../../lib/boardgame';
-import Navbar from '../../components/Navbar';
 
 const PLAYER_COLORS = ['#ef5350','#42a5f5','#66bb6a','#ffa726','#ab47bc','#26c6da','#d4e157','#ff7043'];
 
@@ -14,9 +13,9 @@ export default function BoardGamePage() {
   const [squares, setSquares]     = useState([]);
   const [players, setPlayers]     = useState([]);
   const [positions, setPositions] = useState({});
-  const [prizesEarned, setPrizesEarned] = useState([]); // from board_prizes_earned
+  const [prizesEarned, setPrizesEarned] = useState([]);
   const [todayEntries, setTodayEntries] = useState({});
-  const [allScoreEntries, setAllScoreEntries] = useState([]); // for daily scores table
+  const [allScoreEntries, setAllScoreEntries] = useState([]);
   const [selectedSquare, setSelectedSquare] = useState(null);
   const [tileSize, setTileSize]   = useState(56);
   const [loading, setLoading]     = useState(true);
@@ -48,7 +47,6 @@ export default function BoardGamePage() {
     }
   }, [eventId]);
 
-  // Load today's uncommitted entries + all committed score entries for daily table
   const loadEntries = useCallback(async () => {
     const { data: commits } = await supabase
       .from('board_commits')
@@ -60,21 +58,23 @@ export default function BoardGamePage() {
     const lastDay = commits?.[0]?.day_number ?? 0;
     const nextDay = lastDay + 1;
 
-    // Today's uncommitted entries for sidebar preview
+    // Today's uncommitted entries — use points_each (not points)
     const { data: todayData } = await supabase
       .from('board_score_entries')
-      .select('player_id, points')
+      .select('player_id, points_each')
       .eq('event_id', eventId)
-      .eq('day_number', nextDay);
+      .eq('day_number', nextDay)
+      .eq('committed', false);
     const sums = {};
-    (todayData || []).forEach(e => { sums[e.player_id] = (sums[e.player_id] || 0) + e.points; });
+    (todayData || []).forEach(e => { sums[e.player_id] = (sums[e.player_id] || 0) + e.points_each; });
     setTodayEntries(sums);
 
     // All committed score entries for daily scores table
     const { data: allData } = await supabase
       .from('board_score_entries')
-      .select('player_id, day_number, points')
+      .select('player_id, day_number, points_each')
       .eq('event_id', eventId)
+      .eq('committed', true)
       .lte('day_number', lastDay);
     setAllScoreEntries(allData || []);
   }, [eventId]);
@@ -84,7 +84,6 @@ export default function BoardGamePage() {
     loadEntries();
   }, [load, loadEntries]);
 
-  // Realtime subscription for live position + entry updates
   useEffect(() => {
     const posChannel = supabase
       .channel('board_positions_' + eventId)
@@ -124,17 +123,14 @@ export default function BoardGamePage() {
   const trackLength = config.track_length || 252;
   const gridColumns = config.grid_columns || 18;
   const themeColor  = config.theme_color || '#c62828';
-  const grid = buildGrid(trackLength, gridColumns);
   const squareMap = {};
   squares.forEach(s => { squareMap[s.square_number] = s; });
 
-  // Build grid rows for rendering
   const numRows = Math.ceil((trackLength + 1) / gridColumns);
   const rows = [];
   for (let r = 0; r < numRows; r++) {
     const row = [];
     for (let c = 0; c < gridColumns; c++) {
-      // Find which square number is at (r, c)
       const sq = r % 2 === 0 ? r * gridColumns + c : r * gridColumns + (gridColumns - 1 - c);
       if (sq <= trackLength) row.push(sq);
     }
@@ -168,7 +164,6 @@ export default function BoardGamePage() {
   const popup = selectedSquare !== null ? squareMap[selectedSquare] : null;
   const popupPlayers = selectedSquare !== null ? playersOnSquare(selectedSquare) : [];
 
-  // Badge sidebar data
   const sortedPlayers = [...players].sort((a, b) => {
     const posA = positions[a.id] || 0;
     const posB = positions[b.id] || 0;
@@ -180,7 +175,6 @@ export default function BoardGamePage() {
 
   return (
     <div style={{ minHeight: '100vh', background: '#0d0d1a', color: '#fff', fontFamily: 'sans-serif' }}>
-      <Navbar />
       {/* Header */}
       <div style={{ background: themeColor, padding: '16px 24px', display: 'flex', alignItems: 'center', gap: 16 }}>
         {config.title_image_url
@@ -207,17 +201,13 @@ export default function BoardGamePage() {
                   const onSquare = playersOnSquare(sqNum);
                   return (
                     <div key={sqNum} style={squareStyle(sqNum)} onClick={() => setSelectedSquare(selectedSquare === sqNum ? null : sqNum)}>
-                      {/* Square number */}
                       <span style={{ position: 'absolute', top: 2, left: 3, fontSize: 8, opacity: 0.6 }}>{sqNum}</span>
-                      {/* Icon */}
                       {sq?.icon && <span style={{ fontSize: tileSize < 50 ? 12 : 16 }}>{sq.icon}</span>}
-                      {/* Label */}
                       {sq?.label && tileSize >= 50 && (
                         <span style={{ fontSize: 8, textAlign: 'center', lineHeight: 1.1, padding: '0 2px', wordBreak: 'break-word', maxWidth: '100%' }}>
                           {sq.label}
                         </span>
                       )}
-                      {/* Player dots */}
                       {onSquare.length > 0 && (
                         <div style={{ position: 'absolute', bottom: 2, right: 2, display: 'flex', flexWrap: 'wrap', gap: 1, maxWidth: tileSize - 4 }}>
                           {onSquare.map((p, i) => (
@@ -276,7 +266,7 @@ export default function BoardGamePage() {
             </div>
           )}
 
-          {/* Prize Tracker — driven from board_prizes_earned */}
+          {/* Prize Tracker */}
           {(() => {
             const prizeSquares = squares.filter(s => s.type === 'prize');
             if (prizeSquares.length === 0) return null;
@@ -325,15 +315,14 @@ export default function BoardGamePage() {
           {/* Player Scores By Day */}
           {allScoreEntries.length > 0 && (() => {
             const days = [...new Set(allScoreEntries.map(e => e.day_number))].sort((a, b) => a - b);
-            // Build per-player per-day totals
             const playerDayTotals = {};
             players.forEach(p => { playerDayTotals[p.id] = {}; });
             allScoreEntries.forEach(e => {
               if (!playerDayTotals[e.player_id]) return;
               playerDayTotals[e.player_id][e.day_number] =
-                (playerDayTotals[e.player_id][e.day_number] || 0) + e.points;
+                (playerDayTotals[e.player_id][e.day_number] || 0) + e.points_each;
             });
-            const sortedPlayers = [...players].sort((a, b) => {
+            const sortedByScore = [...players].sort((a, b) => {
               const totA = Object.values(playerDayTotals[a.id] || {}).reduce((s, v) => s + v, 0);
               const totB = Object.values(playerDayTotals[b.id] || {}).reduce((s, v) => s + v, 0);
               return totB - totA;
@@ -355,7 +344,7 @@ export default function BoardGamePage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {sortedPlayers.map((p, i) => {
+                      {sortedByScore.map((p, i) => {
                         const dayMap = playerDayTotals[p.id] || {};
                         const total = Object.values(dayMap).reduce((s, v) => s + v, 0);
                         return (
@@ -420,14 +409,12 @@ export default function BoardGamePage() {
                     </div>
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#ffd700' }}>{badges.length}🏅</div>
                   </div>
-                  {/* Progress bar */}
                   <div style={{ height: 4, background: '#2a2a3e', borderRadius: 2, overflow: 'hidden' }}>
                     <div style={{ width: pct + '%', height: '100%', background: themeColor, transition: 'width 0.5s' }} />
                   </div>
                   {todayPts > 0 && (
                     <div style={{ fontSize: 10, color: '#4caf50', marginTop: 4 }}>+{todayPts} pts today (uncommitted)</div>
                   )}
-                  {/* Badge chips */}
                   {badges.length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 6 }}>
                       {badges.map(b => (
