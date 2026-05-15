@@ -99,9 +99,11 @@ export async function fireAllPlayWebhooks({
 }) {
   const color = hexToDecimal(themeColor);
   const label = todayLabel(dayNumber);
-  const standingsText = allTeams
+  const teamStandingsText = allTeams
     .map((t, i) => `${i + 1}. **${t.name}** — ${t.points}pts (${t.wins}W-${t.losses}L-${t.ties ?? 0}T)`)
     .join('\n') || 'No data';
+  // Keep standingsText as alias for overall webhook backwards compat
+  const standingsText = teamStandingsText;
 
   if (overallWebhook) {
     const payload = {
@@ -132,7 +134,7 @@ export async function fireAllPlayWebhooks({
             { name: 'Record', value: `${tw.wins}W-${tw.losses}L-${tw.ties ?? 0}T`, inline: true },
             { name: 'Total Points', value: String(tw.points), inline: true },
             { name: 'Current Rank', value: `#${tw.rank}`, inline: true },
-            { name: '🏆 Full Standings', value: standingsText },
+            { name: '🏆 Team Standings', value: teamStandingsText },
           ],
           footer: { text: 'Keep it up! 💪' },
           url: publicUrl,
@@ -212,6 +214,7 @@ export async function fireHighScoreWebhooks({
             { name: 'Team Total', value: formatScore(tw.totalTeamScore), inline: true },
             { name: 'Rank', value: `#${tw.rank}`, inline: true },
             { name: '👥 Member Breakdown', value: memberLines },
+            { name: '🏆 Team Standings', value: teamStandings || 'No data' },
             { name: '👤 Individual Standings', value: playerStandings },
           ],
           footer: { text: 'Keep grinding! 🔥' },
