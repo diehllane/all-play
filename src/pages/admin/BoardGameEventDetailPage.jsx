@@ -27,6 +27,9 @@ export default function BoardGameEventDetailPage() {
   const [newPlayerAvatar, setNewPlayerAvatar] = useState('');
   const [addingPlayer, setAddingPlayer] = useState(false);
 
+  const [newCatName, setNewCatName] = useState('');
+  const [newCatPts, setNewCatPts] = useState(1);
+
   const load = useCallback(async () => {
     const [evRes, cfgRes, plRes, catRes, posRes, sqRes, cmtRes, entRes] = await Promise.all([
       supabase.from('events').select('*').eq('id', eventId).single(),
@@ -73,6 +76,24 @@ export default function BoardGameEventDetailPage() {
   const handleRemovePlayer = async (playerId) => {
     if (!confirm('Remove this player? All their score entries will also be deleted.')) return;
     await supabase.from('board_players').delete().eq('id', playerId);
+    await load();
+  };
+
+  const handleAddCategory = async () => {
+    if (!newCatName.trim()) return;
+    const { error } = await supabase.from('categories').insert({
+      event_id: eventId,
+      name: newCatName.trim(),
+      multiplier: Number(newCatPts) || 1,
+    });
+    if (error) { setMessage({ type: 'error', text: error.message }); return; }
+    setNewCatName('');
+    setNewCatPts(1);
+    await load();
+  };
+
+  const handleDeleteCategory = async (id) => {
+    await supabase.from('categories').delete().eq('id', id);
     await load();
   };
 
@@ -229,13 +250,40 @@ export default function BoardGameEventDetailPage() {
 
       <div style={{ background: '#1e1e2e', borderRadius: 8, padding: 16, marginBottom: 20, border: '1px solid #2a2a3e' }}>
         <h3 style={{ margin: '0 0 12px 0', fontSize: 14 }}>Encounter Categories ({categories.length})</h3>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {categories.map(c => (
-            <span key={c.id} style={{ background: '#13131f', border: '1px solid #333', padding: '4px 10px', borderRadius: 12, fontSize: 12 }}>
-              {c.name} <span style={{ color: '#ffd700' }}>{c.multiplier}pts</span>
-            </span>
-          ))}
-        </div>
+        {categories.map(c => (
+          <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 0', borderBottom: '1px solid #2a2a3e', fontSize: 13 }}>
+            <span style={{ flex: 1 }}>{c.name}</span>
+            <span style={{ color: '#ffd700', minWidth: 55 }}>{c.multiplier} pts</span>
+            {isRunner && (
+              <button onClick={() => handleDeleteCategory(c.id)}
+                style={{ background: 'none', border: '1px solid #4a1010', color: '#ef5350', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontSize: 12 }}>
+                Remove
+              </button>
+            )}
+          </div>
+        ))}
+        {isRunner && (
+          <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              value={newCatName}
+              onChange={e => setNewCatName(e.target.value)}
+              placeholder="Category name (e.g. Shiny Legend)"
+              style={{ flex: 1, minWidth: 160, padding: '7px 12px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }}
+            />
+            <input
+              type="number"
+              value={newCatPts}
+              onChange={e => setNewCatPts(e.target.value)}
+              style={{ width: 70, padding: '7px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }}
+              placeholder="Pts"
+              min="1"
+            />
+            <button onClick={handleAddCategory}
+              style={{ padding: '7px 16px', background: themeColor, border: 'none', color: '#fff', borderRadius: 6, cursor: 'pointer', fontWeight: 600 }}>
+              + Add
+            </button>
+          </div>
+        )}
       </div>
 
       {isRunner && (
