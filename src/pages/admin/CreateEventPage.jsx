@@ -462,6 +462,17 @@ function AllPlayWizard() {
         })
         .select().single();
       if (error) throw error;
+
+      // Create division rows
+      const count = Number(numDivisions) || 1;
+      await supabase.from('divisions').insert(
+        Array.from({ length: count }, (_, i) => ({
+          event_id: ev.id,
+          division_number: i + 1,
+          name: count === 1 ? 'Division 1' : `Division ${i + 1}`,
+        }))
+      );
+
       navigate(`/admin/events/${ev.id}`);
     } catch (e) { setMsg(e.message); }
     finally { setSaving(false); }
