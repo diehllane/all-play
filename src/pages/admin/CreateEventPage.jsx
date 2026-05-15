@@ -348,6 +348,64 @@ function BoardGameWizard() {
         })
         .select().single();
       if (error) throw error;
+
+      // Create default board config
+      await supabase.from('board_game_config').insert({
+        event_id: ev.id,
+        track_length: 252,
+        grid_columns: 18,
+        score_divisor: 2,
+        score_operation: 'divide',
+        score_rounding: 'ceil',
+        min_moves_per_day: 1,
+        max_moves_per_day: 0,
+        theme_color: '#c62828',
+        badge_bonus_enabled: true,
+        show_badge_sidebar: true,
+        show_flavor_text: true,
+      });
+
+      // Insert default Kanto/Johto squares
+      const defaultSquares = [
+        { square_number: 0,   type: 'start',        label: 'Start',               icon: '🏁' },
+        { square_number: 125, type: 'center',        label: 'Indigo Plateau',      icon: '🏥' },
+        { square_number: 126, type: 'elite',         label: 'Kanto Elite 4',       icon: '⚔️' },
+        { square_number: 250, type: 'center',        label: 'Pokemon Center',      icon: '🏥' },
+        { square_number: 251, type: 'elite',         label: 'Indigo Plateau',      icon: '⚔️' },
+        { square_number: 252, type: 'finish',        label: 'Johto Elite 4',       icon: '🏆' },
+        { square_number: 14,  type: 'gym', label: 'Pewter City Gym',    icon: '🪨', badge: 'Boulder Badge' },
+        { square_number: 28,  type: 'gym', label: 'Cerulean City Gym',  icon: '💧', badge: 'Cascade Badge' },
+        { square_number: 42,  type: 'gym', label: 'Vermilion City Gym', icon: '⚡', badge: 'Thunder Badge' },
+        { square_number: 56,  type: 'gym', label: 'Celadon City Gym',   icon: '🌿', badge: 'Rainbow Badge' },
+        { square_number: 70,  type: 'gym', label: 'Fuchsia City Gym',   icon: '☠️',  badge: 'Soul Badge' },
+        { square_number: 84,  type: 'gym', label: 'Saffron City Gym',   icon: '🔮', badge: 'Marsh Badge' },
+        { square_number: 98,  type: 'gym', label: 'Cinnabar Island Gym',icon: '🔥', badge: 'Volcano Badge' },
+        { square_number: 112, type: 'gym', label: 'Viridian City Gym',  icon: '🌍', badge: 'Earth Badge' },
+        { square_number: 140, type: 'gym', label: 'Violet City Gym',    icon: '🌬️', badge: 'Zephyr Badge' },
+        { square_number: 153, type: 'gym', label: 'Azalea Town Gym',    icon: '🐛', badge: 'Hive Badge' },
+        { square_number: 166, type: 'gym', label: 'Goldenrod City Gym', icon: '🌾', badge: 'Plain Badge' },
+        { square_number: 179, type: 'gym', label: 'Ecruteak City Gym',  icon: '👻', badge: 'Fog Badge' },
+        { square_number: 192, type: 'gym', label: 'Cianwood City Gym',  icon: '🌊', badge: 'Storm Badge' },
+        { square_number: 205, type: 'gym', label: 'Olivine City Gym',   icon: '⚙️',  badge: 'Mineral Badge' },
+        { square_number: 218, type: 'gym', label: 'Mahogany Town Gym',  icon: '🧊', badge: 'Glacier Badge' },
+        { square_number: 231, type: 'gym', label: 'Blackthorn City Gym',icon: '🐉', badge: 'Rising Badge' },
+        { square_number: 34,  type: 'prize',        label: '10 Quick Balls',   icon: '🎁' },
+        { square_number: 69,  type: 'prize',        label: '5 Mystery Boxes',  icon: '📦' },
+        { square_number: 180, type: 'prize',        label: '1 Ability Capsule',icon: '💊' },
+        { square_number: 20,  type: 'bonus_jump',   label: 'Short Cut!', icon: '⬆️', jump_to: 34 },
+        { square_number: 55,  type: 'bonus_jump',   label: 'Short Cut!', icon: '⬆️', jump_to: 69 },
+        { square_number: 160, type: 'bonus_jump',   label: 'Short Cut!', icon: '⬆️', jump_to: 180 },
+        { square_number: 40,  type: 'penalty_jump', label: 'Setback!',   icon: '⬇️', jump_to: 14 },
+        { square_number: 85,  type: 'penalty_jump', label: 'Setback!',   icon: '⬇️', jump_to: 70 },
+        { square_number: 130, type: 'penalty_jump', label: 'Setback!',   icon: '⬇️', jump_to: 98 },
+        { square_number: 195, type: 'penalty_jump', label: 'Setback!',   icon: '⬇️', jump_to: 140 },
+        { square_number: 230, type: 'penalty_jump', label: 'Setback!',   icon: '⬇️', jump_to: 218 },
+        ...[8,22,48,62,78,100,115,135,150,168,190,210,235,248].map(n => ({ square_number: n, type: 'bonus_small',   icon: '✨', move_amount: 2, label: '+2 Steps' })),
+        ...[12,30,52,73,90,108,118,145,162,175,200,220,240,245].map(n => ({ square_number: n, type: 'penalty_small', icon: '💢', move_amount: 2, label: '-2 Steps' })),
+      ].map(s => ({ ...s, event_id: ev.id }));
+
+      await supabase.from('board_squares').insert(defaultSquares);
+
       navigate(`/admin/board/${ev.id}`);
     } catch (e) { setMsg(e.message); }
     finally { setSaving(false); }
