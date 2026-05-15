@@ -4,7 +4,6 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { exportBoardGameXLSX } from '../../lib/boardgameExport';
-import Navbar from '../../components/Navbar';
 
 export default function BoardGameEventDetailPage() {
   const { eventId } = useParams();
@@ -24,7 +23,6 @@ export default function BoardGameEventDetailPage() {
   const [message, setMessage]     = useState(null);
   const [deleting, setDeleting]   = useState(false);
 
-  // Player management
   const [newPlayerName, setNewPlayerName] = useState('');
   const [newPlayerAvatar, setNewPlayerAvatar] = useState('');
   const [addingPlayer, setAddingPlayer] = useState(false);
@@ -91,26 +89,19 @@ export default function BoardGameEventDetailPage() {
   };
 
   const handleExport = () => {
-    const posMap = {};
-    positions.forEach(p => { posMap[p.player_id] = p.position; });
-    exportBoardGameXLSX(
-      event, config, players,
-      positions, scoreEntries,
-      commits, squares, categories
-    );
+    exportBoardGameXLSX(event, config, players, positions, scoreEntries, commits, squares, categories);
   };
 
-  if (loading) return <><Navbar /><div className="loading">Loading...</div></>;
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#aaa' }}>Loading...</div>;
 
   const themeColor = config?.theme_color || '#c62828';
 
   return (
-    <>
-    <Navbar />
     <div style={{ padding: 24, maxWidth: 860, margin: '0 auto', color: '#fff' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
-          <h2 style={{ margin: '0 0 4px 0' }}>{event?.name}</h2>
+          <Link to="/admin" style={{ color: '#888', textDecoration: 'none', fontSize: 13 }}>← Dashboard</Link>
+          <h2 style={{ margin: '4px 0' }}>{event?.name}</h2>
           <span style={{ fontSize: 12, opacity: 0.6, background: '#c62828', padding: '2px 8px', borderRadius: 10 }}>Board Game</span>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>
@@ -136,14 +127,12 @@ export default function BoardGameEventDetailPage() {
         </div>
       )}
 
-      {/* Config summary */}
       {config && (
         <div style={{ background: '#1e1e2e', borderRadius: 8, padding: 16, marginBottom: 20, border: '1px solid #2a2a3e' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <h3 style={{ margin: 0, fontSize: 14 }}>Board Configuration</h3>
             {isRunner && (
-              <Link to={`/admin/board/${eventId}/edit`}
-                style={{ fontSize: 12, color: themeColor, textDecoration: 'none' }}>Edit →</Link>
+              <Link to={`/admin/board/${eventId}/edit`} style={{ fontSize: 12, color: themeColor, textDecoration: 'none' }}>Edit →</Link>
             )}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10, fontSize: 13 }}>
@@ -166,7 +155,6 @@ export default function BoardGameEventDetailPage() {
         </div>
       )}
 
-      {/* Commit history */}
       <div style={{ background: '#1e1e2e', borderRadius: 8, padding: 16, marginBottom: 20, border: '1px solid #2a2a3e' }}>
         <h3 style={{ margin: '0 0 12px 0', fontSize: 14 }}>Commit History</h3>
         {commits.length === 0
@@ -199,7 +187,6 @@ export default function BoardGameEventDetailPage() {
         }
       </div>
 
-      {/* Players */}
       <div style={{ background: '#1e1e2e', borderRadius: 8, padding: 16, marginBottom: 20, border: '1px solid #2a2a3e' }}>
         <h3 style={{ margin: '0 0 12px 0', fontSize: 14 }}>Players ({players.length})</h3>
         {players.map(p => {
@@ -236,15 +223,8 @@ export default function BoardGameEventDetailPage() {
         )}
       </div>
 
-      {/* Categories */}
       <div style={{ background: '#1e1e2e', borderRadius: 8, padding: 16, marginBottom: 20, border: '1px solid #2a2a3e' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <h3 style={{ margin: 0, fontSize: 14 }}>Encounter Categories ({categories.length})</h3>
-          {isRunner && (
-            <Link to={`/admin/events/${eventId}`}
-              style={{ fontSize: 12, color: themeColor, textDecoration: 'none' }}>Manage in Event Settings →</Link>
-          )}
-        </div>
+        <h3 style={{ margin: '0 0 12px 0', fontSize: 14 }}>Encounter Categories ({categories.length})</h3>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {categories.map(c => (
             <span key={c.id} style={{ background: '#13131f', border: '1px solid #333', padding: '4px 10px', borderRadius: 12, fontSize: 12 }}>
@@ -254,7 +234,6 @@ export default function BoardGameEventDetailPage() {
         </div>
       </div>
 
-      {/* Danger zone */}
       {isRunner && (
         <div style={{ background: '#1e0a0a', borderRadius: 8, padding: 16, border: '1px solid #4a1010' }}>
           <h3 style={{ margin: '0 0 8px 0', fontSize: 14, color: '#ef5350' }}>Danger Zone</h3>
@@ -268,6 +247,5 @@ export default function BoardGameEventDetailPage() {
         </div>
       )}
     </div>
-    </>
   );
 }
