@@ -33,6 +33,7 @@ export default function ScoreEntryPage() {
   const [playoffEntry, setPlayoffEntry] = useState(null);
 
   const realtimeRef = useRef(null);
+  const dayRef = useRef(1);
 
   useEffect(() => {
     loadAll();
@@ -63,6 +64,7 @@ export default function ScoreEntryPage() {
         .limit(1);
       const day = maxDay?.[0]?.day_number ?? 1;
       setDayNumber(day);
+      dayRef.current = day;
       await loadEntries(day);
 
       // Bracket matches if in playoff mode
@@ -83,7 +85,7 @@ export default function ScoreEntryPage() {
         .on('postgres_changes', {
           event: '*', schema: 'public', table: 'score_entries',
           filter: `event_id=eq.${eventId}`,
-        }, () => loadEntries(day))
+        }, () => loadEntries(dayRef.current))
         .subscribe();
     } finally {
       setLoading(false);
@@ -216,7 +218,7 @@ export default function ScoreEntryPage() {
       }
 
       setMsg(`Day ${dayNumber} committed.`);
-      setDayNumber(d => d + 1);
+      setDayNumber(d => { dayRef.current = d + 1; return d + 1; });
       setEntries([]);
     } catch (err) {
       setMsg('Commit error: ' + err.message);
@@ -240,6 +242,7 @@ export default function ScoreEntryPage() {
 
     if (error) { setMsg('Undo failed: ' + error.message); return; }
     setDayNumber(prevDay);
+    dayRef.current = prevDay;
     await loadEntries(prevDay);
     setMsg(`Day ${prevDay} reverted. Fix scores and recommit.`);
   }
