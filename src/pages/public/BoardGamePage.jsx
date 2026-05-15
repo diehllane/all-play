@@ -137,6 +137,17 @@ export default function BoardGamePage() {
     rows.push(row);
   }
 
+  // Directional arrow for snake path
+  const getArrow = (sqNum) => {
+    if (sqNum >= trackLength) return '';
+    const row = Math.floor(sqNum / gridColumns);
+    const isLastInRow = (sqNum + 1) % gridColumns === 0 || sqNum === trackLength - 1;
+    const isFirstInRow = sqNum % gridColumns === 0;
+    if (isLastInRow && row % 2 === 0) return '↓'; // end of left-to-right row, turn down
+    if (isFirstInRow && row % 2 === 1) return '↓'; // end of right-to-left row, turn down
+    return row % 2 === 0 ? '→' : '←';
+  };
+
   const playersOnSquare = (sqNum) =>
     players.filter(p => (positions[p.id] || 0) === sqNum);
 
@@ -202,6 +213,7 @@ export default function BoardGamePage() {
                   return (
                     <div key={sqNum} style={squareStyle(sqNum)} onClick={() => setSelectedSquare(selectedSquare === sqNum ? null : sqNum)}>
                       <span style={{ position: 'absolute', top: 2, left: 3, fontSize: 8, opacity: 0.6 }}>{sqNum}</span>
+                      <span style={{ position: 'absolute', bottom: 2, left: 3, fontSize: 8, opacity: 0.35, lineHeight: 1 }}>{getArrow(sqNum)}</span>
                       {sq?.icon && <span style={{ fontSize: tileSize < 50 ? 12 : 16 }}>{sq.icon}</span>}
                       {sq?.label && tileSize >= 50 && (
                         <span style={{ fontSize: 8, textAlign: 'center', lineHeight: 1.1, padding: '0 2px', wordBreak: 'break-word', maxWidth: '100%' }}>
