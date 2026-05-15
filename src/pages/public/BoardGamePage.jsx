@@ -138,17 +138,16 @@ export default function BoardGamePage() {
   }
 
   // Directional arrow for snake path
+  // The turn (↓) always happens at the highest sq# in each row —
+  // that's the physical end of travel before dropping to the next row.
+  // Even rows: highest sq# is on the RIGHT side (renders last L→R)
+  // Odd rows:  highest sq# is on the LEFT side (renders last R→L, but sq# is still highest)
   const getArrow = (sqNum) => {
-    if (sqNum >= trackLength) return ''; // no arrow on finish square
+    if (sqNum >= trackLength) return ''; // no arrow on finish
     const row = Math.floor(sqNum / gridColumns);
     const isEvenRow = row % 2 === 0;
-    // Last square rendered in this row:
-    // Even rows render left→right, so last rendered = highest sq# in row
-    // Odd rows render right→left, so last rendered = lowest sq# in row
-    const rowStart = row * gridColumns;
-    const rowEnd = Math.min(rowStart + gridColumns - 1, trackLength);
-    const lastRendered = isEvenRow ? rowEnd : rowStart;
-    if (sqNum === lastRendered) return '↓';
+    const rowEnd = Math.min((row + 1) * gridColumns - 1, trackLength - 1);
+    if (sqNum === rowEnd) return '↓'; // always the highest sq# in the row
     return isEvenRow ? '→' : '←';
   };
 
