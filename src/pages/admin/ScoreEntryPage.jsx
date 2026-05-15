@@ -84,8 +84,13 @@ export default function ScoreEntryPage() {
         .channel(`scoreentry-${eventId}`)
         .on('postgres_changes', {
           event: '*', schema: 'public', table: 'score_entries',
-          filter: `event_id=eq.${eventId}`,
-        }, () => loadEntries(dayRef.current))
+        }, (payload) => {
+          // Filter client-side — column filters require replica identity which may not be set
+          const row = payload.new || payload.old;
+          if (row?.event_id === eventId) {
+            loadEntries(dayRef.current);
+          }
+        })
         .subscribe();
     } finally {
       setLoading(false);
