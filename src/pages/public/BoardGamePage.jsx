@@ -139,18 +139,16 @@ export default function BoardGamePage() {
 
   // Directional arrow for snake path
   const getArrow = (sqNum) => {
-    if (sqNum >= trackLength) return ''; // no arrow on finish
+    if (sqNum >= trackLength) return ''; // no arrow on finish square
     const row = Math.floor(sqNum / gridColumns);
-    const col = sqNum % gridColumns; // logical column (0 = leftmost)
-    const isEvenRow = row % 2 === 0; // even rows go left→right
-    // The rendered last tile in an even row is at logical col (gridColumns-1)
-    // The rendered last tile in an odd row is at logical col 0
-    const isLastRendered = isEvenRow
-      ? col === gridColumns - 1
-      : col === 0;
-    // Also catch the very last square before finish if it doesn't fill the row
-    const isAbsoluteLast = sqNum === trackLength - 1;
-    if (isLastRendered || isAbsoluteLast) return '↓';
+    const isEvenRow = row % 2 === 0;
+    // Last square rendered in this row:
+    // Even rows render left→right, so last rendered = highest sq# in row
+    // Odd rows render right→left, so last rendered = lowest sq# in row
+    const rowStart = row * gridColumns;
+    const rowEnd = Math.min(rowStart + gridColumns - 1, trackLength);
+    const lastRendered = isEvenRow ? rowEnd : rowStart;
+    if (sqNum === lastRendered) return '↓';
     return isEvenRow ? '→' : '←';
   };
 
