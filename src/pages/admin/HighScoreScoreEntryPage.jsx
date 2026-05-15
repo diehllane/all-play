@@ -126,12 +126,14 @@ export default function HighScoreScoreEntryPage() {
     setCommitting(true);
     setMsg('');
     try {
-      const { upserts } = await commitHSDay(eventId, dayNumber, config, players, teams);
+      // Re-fetch config fresh to avoid stale state closure
+      const freshConfig = await getHSConfig(eventId).catch(() => config || {});
+      const { upserts } = await commitHSDay(eventId, dayNumber, freshConfig, players, teams);
 
       // Build standings for Discord
       const allTotals = await getHSDailyTotals(eventId);
       const { individualStandings, teamStandings } = buildHSStandings(
-        allTotals, players, teams, config?.mode || 'solo'
+        allTotals, players, teams, freshConfig?.mode || 'solo'
       );
 
       const overallWebhook = event?.discord_overall_webhook;
@@ -160,8 +162,8 @@ export default function HighScoreScoreEntryPage() {
           eventName: event?.name || 'Event',
           dayNumber,
           publicUrl: `${window.location.origin}/all-play/highscore/${eventId}`,
-          themeColor: config?.theme_color || '#c62828',
-          mode: config?.mode || 'solo',
+          themeColor: freshConfig?.theme_color || '#c62828',
+          mode: freshConfig?.mode || 'solo',
           overallWebhook,
           teamWebhooks: teamWebhookList,
           allTeams: teamStandings.map(t => ({ name: t.name, totalScore: t.totalScore, rank: t.rank })),
