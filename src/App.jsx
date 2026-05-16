@@ -10,6 +10,7 @@ import SchedulePage from './pages/public/SchedulePage';
 import BracketPage from './pages/public/BracketPage';
 import BoardGamePage from './pages/public/BoardGamePage';
 import HighScorePage from './pages/public/HighScorePage';
+import BingoPage from './pages/public/BingoPage';
 
 // Admin pages
 import LoginPage from './pages/admin/LoginPage';
@@ -25,6 +26,9 @@ import BoardGameScoreEntryPage from './pages/admin/BoardGameScoreEntryPage';
 import BoardGameEditPage from './pages/admin/BoardGameEditPage';
 import HighScoreEventDetailPage from './pages/admin/HighScoreEventDetailPage';
 import HighScoreScoreEntryPage from './pages/admin/HighScoreScoreEntryPage';
+import BingoEventDetailPage from './pages/admin/BingoEventDetailPage';
+import BingoScoreEntryPage from './pages/admin/BingoScoreEntryPage';
+import BingoEditPage from './pages/admin/BingoEditPage';
 
 const BASE = '/all-play';
 
@@ -49,6 +53,7 @@ export default function App() {
           <Route path="/events/:slug/bracket" element={<BracketPage />} />
           <Route path="/board/:eventId" element={<BoardGamePage />} />
           <Route path="/highscore/:id" element={<HighScorePage />} />
+          <Route path="/bingo/:eventId" element={<BingoPage />} />
 
           {/* Auth */}
           <Route path="/login" element={<LoginPage />} />
@@ -72,6 +77,11 @@ export default function App() {
           {/* High Score admin */}
           <Route path="/admin/highscore/:id" element={<RequireAuth><HighScoreEventDetailPage /></RequireAuth>} />
           <Route path="/admin/highscore/:id/scores" element={<RequireAuth><HighScoreScoreEntryPage /></RequireAuth>} />
+
+          {/* Bingo admin */}
+          <Route path="/admin/bingo/:eventId" element={<RequireAuth><BingoEventDetailPage /></RequireAuth>} />
+          <Route path="/admin/bingo/:eventId/scores" element={<RequireAuth><BingoScoreEntryPage /></RequireAuth>} />
+          <Route path="/admin/bingo/:eventId/edit" element={<RequireAuth><BingoEditPage /></RequireAuth>} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
