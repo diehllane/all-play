@@ -425,6 +425,76 @@ export async function getNextDayNumber(eventId) {
 }
 
 // ============================================================
+// DISCORD WEBHOOK
+// ============================================================
+
+async function sendDiscordWebhook(webhookUrl, payload) {
+  if (!webhookUrl) return;
+  try {
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    console.warn('Discord webhook failed:', e.message);
+  }
+}
+
+function buildDiscordMessage({ config, teams, players, results, dayNumber, teamScoreUpdates, playerScoreUpdates }) {
+  const isTeam = config.event_type === 'team';
+  const eventName = config.game_title || 'Bingo Event';
+  const lines = [`**${eventName} — Day ${dayNumber} Results**`];
+
+  if (isTeam) {
+    const teamRows = teams
+      .map(t => ({
+        name: t.name,
+        scores: teamScoreUpdates[t.id] ?? { total_score: 0, bingo_count: 0 },
+        bingosToday: results.teamBingosEarned.filter(b => b.team_id === t.id).length,
+      }))
+      .sort((a, b) => b.scores.total_score - a.scores.total_score);
+
+    lines.push('', '**Team Standings**');
+    teamRows.forEach((t, i) => {
+      const todayBingos = t.bingosToday > 0 ? ` *(+${t.bingosToday} bingo${t.bingosToday > 1 ? 's' : ''} today)*` : '';
+      lines.push(`${i + 1}. **${t.name}** — ${t.scores.total_score} pts (${t.scores.bingo_count} total bingos)${todayBingos}`);
+    });
+
+    const playerRows = players
+      .map(p => ({
+        name: p.name,
+        team: teams.find(t => t.id === p.team_id)?.name ?? '',
+        scores: playerScoreUpdates[p.id] ?? { total_score: 0, bingo_count: 0 },
+        bingosToday: results.individualBingosEarned.filter(b => b.player_id === p.id).length,
+      }))
+      .sort((a, b) => b.scores.total_score - a.scores.total_score);
+
+    lines.push('', '**Individual Standings**');
+    playerRows.forEach((p, i) => {
+      const todayBingos = p.bingosToday > 0 ? ` *(+${p.bingosToday} bingo${p.bingosToday > 1 ? 's' : ''} today)*` : '';
+      lines.push(`${i + 1}. **${p.name}** [${p.team}] — ${p.scores.total_score} pts${todayBingos}`);
+    });
+  } else {
+    const playerRows = players
+      .map(p => ({
+        name: p.name,
+        scores: playerScoreUpdates[p.id] ?? { total_score: 0, bingo_count: 0 },
+        bingosToday: results.individualBingosEarned.filter(b => b.player_id === p.id).length,
+      }))
+      .sort((a, b) => b.scores.total_score - a.scores.total_score);
+
+    lines.push('', '**Standings**');
+    playerRows.forEach((p, i) => {
+      const todayBingos = p.bingosToday > 0 ? ` *(+${p.bingosToday} bingo${p.bingosToday > 1 ? 's' : ''} today)*` : '';
+      lines.push(`${i + 1}. **${p.name}** — ${p.scores.total_score} pts (${p.scores.bingo_count} total bingos)${todayBingos}`);
+    });
+  }
+
+  return { content: lines.join('\n') };
+}
+
+// ============================================================
 // COMMIT TO DATABASE
 // ============================================================
 
@@ -617,7 +687,28 @@ export async function commitBingoDay(eventId, dayNumber, userId) {
     await supabase.from('bingo_lines_completed').insert(lineInserts);
   }
 
-  // 12. Insert daily scores
+  // 12. Send Discord webhook (fire-and-forget, never blocks commit)
+  const discordPayload = buildDiscordMessage({
+    config,
+    teams: teams ?? [],
+    players,
+    results,
+    dayNumber,
+    teamScoreUpdates: results.teamScoreUpdates,
+    playerScoreUpdates: results.playerScoreUpdates,
+  });
+  // Overall event webhook
+  await sendDiscordWebhook(config.discord_webhook_url, discordPayload);
+  // Per-team webhooks (team events only)
+  if (config.event_type === 'team' && teams?.length > 0) {
+    await Promise.all(
+      teams
+        .filter(t => t.discord_webhook_url)
+        .map(t => sendDiscordWebhook(t.discord_webhook_url, discordPayload))
+    );
+  }
+
+  // 13. Insert daily scores
   const dailyInserts = results.dailyScoreRows.map(r => ({
     event_id: eventId,
     ...r,
