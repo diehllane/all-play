@@ -236,9 +236,23 @@ export default function BoardGameScoreEntryPage() {
       for (const [pid, pos] of Object.entries(newPositions)) {
         const sq = liveSquares.find(s => s.square_number === pos && s.type === 'prize');
         if (sq) {
-          await supabase.from('board_prizes_earned').upsert({
-            event_id: eventId, player_id: pid, square_number: pos,
-          }, { onConflict: 'event_id,player_id,square_number', ignoreDuplicates: true });
+          // Check if already earned (avoid duplicate)
+          const { data: existing } = await supabase
+            .from('board_prizes_earned')
+            .select('id')
+            .eq('event_id', eventId)
+            .eq('player_id', pid)
+            .eq('square_number', pos)
+            .maybeSingle();
+          if (!existing) {
+            const { error: prizeErr } = await supabase.from('board_prizes_earned').insert({
+              event_id: eventId,
+              player_id: pid,
+              square_number: pos,
+              day_number: dayNumber,
+            });
+            if (prizeErr) console.error('Prize insert error:', prizeErr);
+          }
         }
       }
 
