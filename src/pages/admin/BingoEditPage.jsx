@@ -9,7 +9,7 @@ function defaultSquares(hasFreeSpace) {
     position: i,
     label: i === 12 && hasFreeSpace ? 'FREE' : `Square ${i + 1}`,
     description: '',
-    point_value: 10,
+    point_value: 1,
     is_free_space: i === 12 && hasFreeSpace,
   }));
 }
