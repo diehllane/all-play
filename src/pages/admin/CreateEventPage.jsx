@@ -270,17 +270,17 @@ function BingoWizard({ eventType }) {
             <div>
               <label style={s.label}>Operation</label>
               <select value={scoreOperation} onChange={e => setScoreOperation(e.target.value)} style={s.input}>
-                <option value="divide">Divide</option>
-                <option value="multiply">Multiply</option>
+                <option value="divide" style={{ background: '#1a1a1a', color: '#fff' }}>Divide</option>
+                <option value="multiply" style={{ background: '#1a1a1a', color: '#fff' }}>Multiply</option>
               </select>
             </div>
           </div>
 
           <label style={s.label}>Score Rounding</label>
           <select value={scoreRoundingMode} onChange={e => setScoreRoundingMode(e.target.value)} style={s.input}>
-            <option value="ceil">Ceiling (always up)</option>
-            <option value="floor">Floor (always down)</option>
-            <option value="round">Round (nearest)</option>
+            <option value="ceil" style={{ background: '#1a1a1a', color: '#fff' }}>Ceiling (always up)</option>
+            <option value="floor" style={{ background: '#1a1a1a', color: '#fff' }}>Floor (always down)</option>
+            <option value="round" style={{ background: '#1a1a1a', color: '#fff' }}>Round (nearest)</option>
           </select>
 
           <div style={s.navRow}>
@@ -485,16 +485,16 @@ function HighScoreWizard() {
             <div>
               <label style={s.label}>Operation</label>
               <select value={scoreOperation} onChange={e => setScoreOperation(e.target.value)} style={s.input}>
-                <option value="divide">Divide</option>
-                <option value="multiply">Multiply</option>
+                <option value="divide" style={{ background: '#1a1a1a', color: '#fff' }}>Divide</option>
+                <option value="multiply" style={{ background: '#1a1a1a', color: '#fff' }}>Multiply</option>
               </select>
             </div>
           </div>
           <label style={s.label}>Score Rounding</label>
           <select value={scoreRounding} onChange={e => setScoreRounding(e.target.value)} style={s.input}>
-            <option value="round">Round (nearest)</option>
-            <option value="ceil">Ceiling (always up)</option>
-            <option value="floor">Floor (always down)</option>
+            <option value="round" style={{ background: '#1a1a1a', color: '#fff' }}>Round (nearest)</option>
+            <option value="ceil" style={{ background: '#1a1a1a', color: '#fff' }}>Ceiling (always up)</option>
+            <option value="floor" style={{ background: '#1a1a1a', color: '#fff' }}>Floor (always down)</option>
           </select>
           {mode === 'team' && (
             <label style={s.checkLabel}>
@@ -709,9 +709,9 @@ function AllPlayWizard() {
           <input type="number" value={numDivisions} onChange={e => setNumDivisions(Number(e.target.value))} style={s.input} min="1" max="4" />
           <label style={s.label}>Default Series Format</label>
           <select value={seriesFormat} onChange={e => setSeriesFormat(e.target.value)} style={s.input}>
-            <option value="single">Single game</option>
-            <option value="best_of_3">Best of 3</option>
-            <option value="best_of_5">Best of 5</option>
+            <option value="single" style={{ background: '#1a1a1a', color: '#fff' }}>Single game</option>
+            <option value="best_of_3" style={{ background: '#1a1a1a', color: '#fff' }}>Best of 3</option>
+            <option value="best_of_5" style={{ background: '#1a1a1a', color: '#fff' }}>Best of 5</option>
           </select>
           <div style={s.navRow}>
             <button onClick={() => setWizStep(1)} style={s.backBtn}>← Back</button>
@@ -730,10 +730,10 @@ function AllPlayWizard() {
 const s = {
   page: { maxWidth: 720, margin: '0 auto', padding: '32px 16px', fontFamily: 'sans-serif' },
   back: { color: '#888', textDecoration: 'none', fontSize: 13, display: 'block', marginBottom: 12 },
-  title: { color: '#fff', fontSize: 24, marginBottom: 6 },
+  title: { color: 'var(--text)', fontSize: 24, marginBottom: 6 },
   subtitle: { color: '#888', fontSize: 15, marginBottom: 24 },
   typeGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16 },
-  typeCard: { background: '#1a1a1a', border: '1px solid #333', borderRadius: 10, padding: 20, cursor: 'pointer', textAlign: 'left', transition: 'border-color .15s', color: '#fff' },
+  typeCard: { background: '#1a1a1a', border: '1px solid #333', borderRadius: 10, padding: 20, cursor: 'pointer', textAlign: 'left', transition: 'border-color .15s', color: 'var(--text)' },
   typeCardDisabled: { opacity: 0.5, cursor: 'default', background: '#111' },
   typeIcon: { fontSize: 32, marginBottom: 8 },
   typeLabel: { fontWeight: 700, fontSize: 16, marginBottom: 4 },
@@ -741,12 +741,12 @@ const s = {
   comingSoon: { display: 'inline-block', background: '#333', color: '#888', borderRadius: 4, padding: '2px 8px', fontSize: 11, marginBottom: 6 },
   stepRow: { display: 'flex', gap: 0, marginBottom: 24, borderBottom: '1px solid #333' },
   step: { padding: '10px 20px', color: '#888', fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 },
-  stepActive: { color: '#fff', borderBottom: `2px solid ${ACC}`, fontWeight: 700 },
+  stepActive: { color: 'var(--text)', borderBottom: `2px solid ${ACC}`, fontWeight: 700 },
   stepNum: { width: 20, height: 20, borderRadius: '50%', background: '#333', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 },
   card: { background: '#1a1a1a', border: '1px solid #333', borderRadius: 10, padding: 24 },
-  cardTitle: { color: '#fff', fontSize: 17, marginTop: 0, marginBottom: 16 },
+  cardTitle: { color: 'var(--text)', fontSize: 17, marginTop: 0, marginBottom: 16 },
   label: { display: 'block', color: '#aaa', fontSize: 13, marginBottom: 6, marginTop: 16 },
-  input: { width: '100%', boxSizing: 'border-box', background: '#111', color: '#fff', border: '1px solid #444', borderRadius: 6, padding: '8px 12px', fontSize: 14 },
+  input: { width: '100%', boxSizing: 'border-box', background: '#111', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 6, padding: '8px 12px', fontSize: 14 },
   hint: { color: '#666', fontSize: 12, marginTop: 4 },
   radioRow: { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 },
   radioLabel: { display: 'flex', alignItems: 'center', gap: 8, color: '#ccc', fontSize: 14, cursor: 'pointer' },
@@ -756,8 +756,8 @@ const s = {
   removeBtn: { background: 'none', color: '#c55', border: '1px solid #522', borderRadius: 6, padding: '6px 10px', cursor: 'pointer' },
   addCatBtn: { background: 'none', color: ACC, border: `1px solid ${ACC}`, borderRadius: 6, padding: '7px 16px', cursor: 'pointer', marginTop: 4 },
   navRow: { display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 24 },
-  nextBtn: { background: ACC, color: '#fff', border: 'none', borderRadius: 6, padding: '9px 20px', cursor: 'pointer', fontWeight: 700 },
-  backBtn: { background: '#222', color: '#ccc', border: '1px solid #444', borderRadius: 6, padding: '9px 16px', cursor: 'pointer' },
-  createBtn: { background: ACC, color: '#fff', border: 'none', borderRadius: 6, padding: '10px 24px', cursor: 'pointer', fontWeight: 700, fontSize: 15 },
+  nextBtn: { background: ACC, color: 'var(--text)', border: 'none', borderRadius: 6, padding: '9px 20px', cursor: 'pointer', fontWeight: 700 },
+  backBtn: { background: '#222', color: '#ccc', border: '1px solid var(--border)', borderRadius: 6, padding: '9px 16px', cursor: 'pointer' },
+  createBtn: { background: ACC, color: 'var(--text)', border: 'none', borderRadius: 6, padding: '10px 24px', cursor: 'pointer', fontWeight: 700, fontSize: 15 },
   msg: { background: '#1e1e1e', border: '1px solid #553', borderRadius: 6, padding: '10px 14px', color: '#ffb', marginBottom: 16 },
 };

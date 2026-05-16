@@ -48,7 +48,7 @@ function BoardBuilder({ squares, setSquares, config, onSaveSquares, saving }) {
       <div style={{ marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
         <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>Drag tiles to rearrange. Click a tile to edit its details.</span>
         <button onClick={onSaveSquares} disabled={saving}
-          style={{ marginLeft: 'auto', background: themeColor, color: '#fff', border: 'none', borderRadius: 6, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          style={{ marginLeft: 'auto', background: themeColor, color: 'var(--text)', border: 'none', borderRadius: 6, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
           {saving ? 'Saving...' : 'Save Board'}
         </button>
       </div>
@@ -96,7 +96,7 @@ function BoardBuilder({ squares, setSquares, config, onSaveSquares, saving }) {
                   position: 'relative',
                 }}>
                 {sq.is_free_space && (
-                  <div style={{ position: 'absolute', top: 4, right: 4, background: themeColor, color: '#fff', fontSize: 9, fontWeight: 700, borderRadius: 3, padding: '1px 4px' }}>FREE</div>
+                  <div style={{ position: 'absolute', top: 4, right: 4, background: themeColor, color: 'var(--text)', fontSize: 9, fontWeight: 700, borderRadius: 3, padding: '1px 4px' }}>FREE</div>
                 )}
                 <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3, marginBottom: 4 }}>{sq.label || '(empty)'}</div>
                 {!sq.is_free_space && <div style={{ fontSize: 11, color: themeColor, fontWeight: 700 }}>{sq.point_value}pts</div>}
@@ -105,16 +105,16 @@ function BoardBuilder({ squares, setSquares, config, onSaveSquares, saving }) {
                   <div onClick={e => e.stopPropagation()} style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
                     <input value={sq.label} onChange={e => updateSquare(pos, 'label', e.target.value)}
                       placeholder="Label"
-                      style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 4, padding: '4px 8px', fontSize: 12, width: '100%' }} />
+                      style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 4, padding: '4px 8px', fontSize: 12, width: '100%' }} />
                     {!sq.is_free_space && (
                       <input type="number" value={sq.point_value} onChange={e => updateSquare(pos, 'point_value', Number(e.target.value))}
                         placeholder="Points"
-                        style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 4, padding: '4px 8px', fontSize: 12, width: '100%' }} />
+                        style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 4, padding: '4px 8px', fontSize: 12, width: '100%' }} />
                     )}
                     <textarea value={sq.description ?? ''} onChange={e => updateSquare(pos, 'description', e.target.value)}
                       placeholder="Description (optional)"
                       rows={2}
-                      style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 4, padding: '4px 8px', fontSize: 11, width: '100%', resize: 'vertical' }} />
+                      style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 4, padding: '4px 8px', fontSize: 11, width: '100%', resize: 'vertical' }} />
                     {config.free_space_enabled && (
                       <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--text-dim)', cursor: 'pointer' }}>
                         <input type="checkbox" checked={sq.is_free_space} onChange={e => {
@@ -157,12 +157,12 @@ function ConfigTab({ config, setConfig, onSave, saving }) {
       <label style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 4 }}>{label}</label>
       <input type={type} value={config[key] ?? ''} onChange={e => setConfig(p => ({ ...p, [key]: type === 'number' ? Number(e.target.value) : e.target.value }))}
         {...extra}
-        style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 6, padding: '8px 12px', fontSize: 14, width: '100%', maxWidth: 360 }} />
+        style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 6, padding: '8px 12px', fontSize: 14, width: '100%', maxWidth: 360 }} />
     </div>
   );
   const boolField = (key, label) => (
     <div style={{ marginBottom: 12 }}>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 14, color: 'var(--text)' }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 14, color: '#fff' }}>
         <input type="checkbox" checked={!!config[key]} onChange={e => setConfig(p => ({ ...p, [key]: e.target.checked }))} />
         {label}
       </label>
@@ -172,7 +172,7 @@ function ConfigTab({ config, setConfig, onSave, saving }) {
     <div style={{ marginBottom: 10 }}>
       <label style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 4 }}>{label}</label>
       <input type="number" min={0} value={config[key] ?? 0} onChange={e => setConfig(p => ({ ...p, [key]: Number(e.target.value) }))}
-        style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 6, padding: '7px 10px', fontSize: 14, width: 100 }} />
+        style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 6, padding: '7px 10px', fontSize: 14, width: 100 }} />
     </div>
   );
 
@@ -193,18 +193,18 @@ function ConfigTab({ config, setConfig, onSave, saving }) {
       <div style={{ marginBottom: 16 }}>
         <label style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 4 }}>Score Operation</label>
         <select value={config.score_operation ?? 'divide'} onChange={e => setConfig(p => ({ ...p, score_operation: e.target.value }))}
-          style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 6, padding: '8px 12px', fontSize: 14 }}>
-          <option value="divide">Divide</option>
-          <option value="multiply">Multiply</option>
+          style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 6, padding: '8px 12px', fontSize: 14 }}>
+          <option value="divide" style={{ background: '#1a1a1a', color: '#fff' }}>Divide</option>
+          <option value="multiply" style={{ background: '#1a1a1a', color: '#fff' }}>Multiply</option>
         </select>
       </div>
       <div style={{ marginBottom: 16 }}>
         <label style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 4 }}>Rounding Mode</label>
         <select value={config.score_rounding_mode ?? 'ceil'} onChange={e => setConfig(p => ({ ...p, score_rounding_mode: e.target.value }))}
-          style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 6, padding: '8px 12px', fontSize: 14 }}>
-          <option value="ceil">Ceiling</option>
-          <option value="floor">Floor</option>
-          <option value="round">Round</option>
+          style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 6, padding: '8px 12px', fontSize: 14 }}>
+          <option value="ceil" style={{ background: '#1a1a1a', color: '#fff' }}>Ceiling</option>
+          <option value="floor" style={{ background: '#1a1a1a', color: '#fff' }}>Floor</option>
+          <option value="round" style={{ background: '#1a1a1a', color: '#fff' }}>Round</option>
         </select>
       </div>
 
@@ -223,7 +223,7 @@ function ConfigTab({ config, setConfig, onSave, saving }) {
       {field('discord_webhook_url', 'Overall Discord Webhook URL')}
 
       <button onClick={onSave} disabled={saving}
-        style={{ marginTop: 8, background: themeColor, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+        style={{ marginTop: 8, background: themeColor, color: 'var(--text)', border: 'none', borderRadius: 8, padding: '10px 24px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
         {saving ? 'Saving...' : 'Save Configuration'}
       </button>
     </div>
@@ -271,17 +271,17 @@ function PlayersTab({ config, players, setPlayers, teams, setTeams, eventId, onS
             <button onClick={addTeam} style={{ background: 'none', border: `1px solid ${themeColor}`, color: themeColor, borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>+ Add Team</button>
           </div>
           {teams.map((t, ti) => (
-            <div key={t.id} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 14, marginBottom: 10, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div key={t.id} style={{ background: '#1a1a1a', border: '1px solid var(--border)', borderRadius: 8, padding: 14, marginBottom: 10, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
               <div>
                 <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 3 }}>Team Name</label>
                 <input value={t.name} onChange={e => updateTeam(t.id, 'name', e.target.value)}
-                  style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 5, padding: '6px 10px', fontSize: 13 }} />
+                  style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 5, padding: '6px 10px', fontSize: 13 }} />
               </div>
               <div>
                 <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 3 }}>Avatar URL</label>
                 <input value={t.avatar_url ?? ''} onChange={e => updateTeam(t.id, 'avatar_url', e.target.value)}
                   placeholder="https://..."
-                  style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 5, padding: '6px 10px', fontSize: 13, width: 200 }} />
+                  style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 5, padding: '6px 10px', fontSize: 13, width: 200 }} />
               </div>
               <div>
                 <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 3 }}>Team Color</label>
@@ -292,7 +292,7 @@ function PlayersTab({ config, players, setPlayers, teams, setTeams, eventId, onS
                 <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 3 }}>Discord Webhook</label>
                 <input value={t.discord_webhook_url ?? ''} onChange={e => updateTeam(t.id, 'discord_webhook_url', e.target.value)}
                   placeholder="https://discord.com/api/webhooks/..."
-                  style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 5, padding: '6px 10px', fontSize: 12, width: 260 }} />
+                  style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 5, padding: '6px 10px', fontSize: 12, width: 260 }} />
               </div>
               <button onClick={() => removeTeam(t.id)} style={{ background: 'none', border: '1px solid #ef4444', color: '#ef4444', borderRadius: 5, padding: '6px 10px', fontSize: 12, cursor: 'pointer' }}>Remove</button>
             </div>
@@ -306,17 +306,17 @@ function PlayersTab({ config, players, setPlayers, teams, setTeams, eventId, onS
           <button onClick={addPlayer} style={{ background: 'none', border: `1px solid ${themeColor}`, color: themeColor, borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>+ Add Player</button>
         </div>
         {players.map(p => (
-          <div key={p.id} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 14, marginBottom: 10, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div key={p.id} style={{ background: '#1a1a1a', border: '1px solid var(--border)', borderRadius: 8, padding: 14, marginBottom: 10, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div>
               <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 3 }}>Name</label>
               <input value={p.name} onChange={e => updatePlayer(p.id, 'name', e.target.value)}
-                style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 5, padding: '6px 10px', fontSize: 13 }} />
+                style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 5, padding: '6px 10px', fontSize: 13 }} />
             </div>
             <div>
               <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 3 }}>Avatar URL</label>
               <input value={p.avatar_url ?? ''} onChange={e => updatePlayer(p.id, 'avatar_url', e.target.value)}
                 placeholder="https://..."
-                style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 5, padding: '6px 10px', fontSize: 13, width: 180 }} />
+                style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 5, padding: '6px 10px', fontSize: 13, width: 180 }} />
             </div>
             <div>
               <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 3 }}>Color</label>
@@ -327,9 +327,9 @@ function PlayersTab({ config, players, setPlayers, teams, setTeams, eventId, onS
               <div>
                 <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 3 }}>Team</label>
                 <select value={p.team_id ?? ''} onChange={e => updatePlayer(p.id, 'team_id', e.target.value || null)}
-                  style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 5, padding: '6px 10px', fontSize: 13 }}>
-                  <option value="">No Team</option>
-                  {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 5, padding: '6px 10px', fontSize: 13 }}>
+                  <option value="" style={{ background: '#1a1a1a', color: '#fff' }}>No Team</option>
+                  {teams.map(t => <option key={t.id} value={t.id} style={{ background: '#1a1a1a', color: '#fff' }}>{t.name}</option>)}
                 </select>
               </div>
             )}
@@ -339,7 +339,7 @@ function PlayersTab({ config, players, setPlayers, teams, setTeams, eventId, onS
       </div>
 
       <button onClick={onSave} disabled={saving}
-        style={{ marginTop: 16, background: themeColor, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+        style={{ marginTop: 16, background: themeColor, color: 'var(--text)', border: 'none', borderRadius: 8, padding: '10px 24px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
         {saving ? 'Saving...' : 'Save Players & Teams'}
       </button>
     </div>
@@ -454,7 +454,7 @@ export default function BingoEditPage() {
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
           <button onClick={() => navigate(`/admin/bingo/${eventId}`)} style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text-dim)', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}>← Back</button>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text)' }}>Edit Bingo Event</h1>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#fff' }}>Edit Bingo Event</h1>
         </div>
 
         {msg && (

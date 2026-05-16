@@ -151,7 +151,7 @@ export default function BingoScoreEntryPage() {
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 28 }}>
           <button onClick={() => navigate(`/admin/bingo/${eventId}`)} style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text-dim)', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}>← Back</button>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: 'var(--text)' }}>Score Entry — Day {dayNumber}</h1>
+          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#fff' }}>Score Entry — Day {dayNumber}</h1>
         </div>
 
         {msg && (
@@ -161,42 +161,42 @@ export default function BingoScoreEntryPage() {
         )}
 
         {/* Entry form */}
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 20, marginBottom: 28 }}>
-          <h2 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Add Entry</h2>
+        <div style={{ background: '#1a1a1a', border: '1px solid var(--border)', borderRadius: 10, padding: 20, marginBottom: 28 }}>
+          <h2 style={{ margin: '0 0 16px', fontSize: 15, fontWeight: 700, color: '#fff' }}>Add Entry</h2>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div>
               <label style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 4 }}>Player</label>
               <select value={selectedPlayer} onChange={e => setSelectedPlayer(e.target.value)}
-                style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 6, padding: '8px 12px', fontSize: 14, minWidth: 160 }}>
-                <option value="">Select player...</option>
+                style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 6, padding: '8px 12px', fontSize: 14, minWidth: 160 }}>
+                <option value="" style={{ background: '#1a1a1a', color: '#fff' }}>Select player...</option>
                 {isTeam
                   ? teams.map(t => (
-                      <optgroup key={t.id} label={t.name}>
+                      <optgroup key={t.id} label={t.name} style={{ background: '#111', color: '#aaa' }}>
                         {players.filter(p => p.team_id === t.id).map(p => (
-                          <option key={p.id} value={p.id}>{p.name}</option>
+                          <option key={p.id} value={p.id} style={{ background: '#1a1a1a', color: '#fff' }}>{p.name}</option>
                         ))}
                       </optgroup>
                     ))
-                  : players.map(p => <option key={p.id} value={p.id}>{p.name}</option>)
+                  : players.map(p => <option key={p.id} value={p.id} style={{ background: '#1a1a1a', color: '#fff' }}>{p.name}</option>)
                 }
               </select>
             </div>
             <div>
               <label style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 4 }}>Square</label>
               <select value={selectedSquare} onChange={e => setSelectedSquare(e.target.value)}
-                style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 6, padding: '8px 12px', fontSize: 14, minWidth: 220 }}>
-                <option value="">Select square...</option>
+                style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 6, padding: '8px 12px', fontSize: 14, minWidth: 220 }}>
+                <option value="" style={{ background: '#1a1a1a', color: '#fff' }}>Select square...</option>
                 {squares.filter(s => !s.is_free_space).map(s => (
-                  <option key={s.id} value={s.id}>{s.label} ({s.point_value} pts)</option>
+                  <option key={s.id} value={s.id} style={{ background: '#1a1a1a', color: '#fff' }}>{s.label} ({s.point_value} pts)</option>
                 ))}
               </select>
             </div>
             <div>
               <label style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 4 }}>Quantity</label>
               <input type="number" min={1} value={quantity} onChange={e => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                style={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 6, padding: '8px 12px', fontSize: 14, width: 80 }} />
+                style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 6, padding: '8px 12px', fontSize: 14, width: 80 }} />
             </div>
-            <button onClick={addEntry} style={{ background: themeColor, color: '#fff', border: 'none', borderRadius: 6, padding: '9px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+            <button onClick={addEntry} style={{ background: themeColor, color: 'var(--text)', border: 'none', borderRadius: 6, padding: '9px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
               + Add
             </button>
           </div>
@@ -210,7 +210,7 @@ export default function BingoScoreEntryPage() {
               const total = playerTotals[p.id] ?? 0;
               const team = teams.find(t => t.id === p.team_id);
               return (
-                <div key={p.id} style={{ background: 'var(--surface)', border: `1px solid ${pEntries.length > 0 ? themeColor + '66' : 'var(--border)'}`, borderRadius: 10, overflow: 'hidden' }}>
+                <div key={p.id} style={{ background: '#1a1a1a', border: `1px solid ${pEntries.length > 0 ? themeColor + '66' : 'var(--border)'}`, borderRadius: 10, overflow: 'hidden' }}>
                   <div style={{ background: `${themeColor}22`, padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${themeColor}44` }}>
                     <div>
                       <span style={{ fontWeight: 700, color: 'var(--text)', fontSize: 14 }}>{p.name}</span>
@@ -222,7 +222,7 @@ export default function BingoScoreEntryPage() {
                     {pEntries.length === 0 && <div style={{ fontSize: 12, color: 'var(--text-dim)', padding: '4px 0' }}>No entries yet</div>}
                     {pEntries.map(e => (
                       <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
-                        <div style={{ flex: 1, fontSize: 13, color: 'var(--text)' }}>
+                        <div style={{ flex: 1, fontSize: 13, color: '#fff' }}>
                           {e.bingo_squares?.label ?? 'Unknown'} ×{e.quantity}
                         </div>
                         <div style={{ fontSize: 12, color: 'var(--text-dim)' }}>
@@ -242,7 +242,7 @@ export default function BingoScoreEntryPage() {
         {isRunner && (
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <button onClick={handleCommit} disabled={committing || entries.length === 0}
-              style={{ background: entries.length > 0 ? themeColor : 'var(--border)', color: '#fff', border: 'none', borderRadius: 8, padding: '12px 28px', fontSize: 15, fontWeight: 700, cursor: entries.length > 0 ? 'pointer' : 'not-allowed' }}>
+              style={{ background: entries.length > 0 ? themeColor : 'var(--border)', color: 'var(--text)', border: 'none', borderRadius: 8, padding: '12px 28px', fontSize: 15, fontWeight: 700, cursor: entries.length > 0 ? 'pointer' : 'not-allowed' }}>
               {committing ? 'Committing...' : `Commit Day ${dayNumber}`}
             </button>
             <button onClick={handleUndo} disabled={undoing}
