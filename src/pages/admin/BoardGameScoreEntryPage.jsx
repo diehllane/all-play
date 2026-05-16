@@ -153,6 +153,14 @@ export default function BoardGameScoreEntryPage() {
     setCommitting(true);
     setMsg('');
     try {
+      // Re-fetch squares and config fresh to avoid stale state closures
+      const { data: freshSquares } = await supabase
+        .from('board_squares').select('*').eq('event_id', eventId);
+      const { data: freshConfig } = await supabase
+        .from('board_game_config').select('*').eq('event_id', eventId).single();
+      const liveSquares = freshSquares || squares;
+      const liveConfig = freshConfig || config;
+
       // Fetch all uncommitted entries
       const { data: allEntries } = await supabase
         .from('board_score_entries')
@@ -183,12 +191,12 @@ export default function BoardGameScoreEntryPage() {
         pre_commit_snapshot: { positions: posMap },
       });
 
-      const trackLen = config.track_length || 252;
-      const divisor = config.score_divisor || 1;
-      const operation = config.score_operation || 'divide';
-      const rounding = config.score_rounding || 'ceil';
-      const minMoves = config.min_moves_per_day || 0;
-      const maxMoves = config.max_moves_per_day || 0;
+      const trackLen = liveConfig.track_length || 252;
+      const divisor = liveConfig.score_divisor || 1;
+      const operation = liveConfig.score_operation || 'divide';
+      const rounding = liveConfig.score_rounding || 'ceil';
+      const minMoves = liveConfig.min_moves_per_day || 0;
+      const maxMoves = liveConfig.max_moves_per_day || 0;
 
       const newPositions = {};
       const badgeAwards = {};
@@ -206,12 +214,12 @@ export default function BoardGameScoreEntryPage() {
         const rawNewPos = Math.min(oldPos + moves, trackLen);
 
         // Check for gym passes
-        const passedGyms = squares.filter(sq =>
+        const passedGyms = liveSquares.filter(sq =>
           sq.type === 'gym' && sq.square_number > oldPos && sq.square_number <= rawNewPos
         );
         if (passedGyms.length > 0) badgeAwards[player.id] = passedGyms;
 
-        const finalPos = resolveSquare(rawNewPos, squares);
+        const finalPos = resolveSquare(rawNewPos, liveSquares);
         newPositions[player.id] = finalPos;
       }
 
@@ -226,7 +234,7 @@ export default function BoardGameScoreEntryPage() {
 
       // Award prizes for exact landings
       for (const [pid, pos] of Object.entries(newPositions)) {
-        const sq = squares.find(s => s.square_number === pos && s.type === 'prize');
+        const sq = liveSquares.find(s => s.square_number === pos && s.type === 'prize');
         if (sq) {
           await supabase.from('board_prizes_earned').upsert({
             event_id: eventId, player_id: pid, square_number: pos,
