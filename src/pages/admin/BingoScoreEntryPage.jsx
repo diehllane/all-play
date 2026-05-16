@@ -92,7 +92,12 @@ export default function BingoScoreEntryPage() {
   };
 
   const removeEntry = async (id) => {
-    await supabase.from('bingo_score_entries').delete().eq('id', id);
+    setEntries(prev => prev.filter(e => e.id !== id));
+    const { error } = await supabase.from('bingo_score_entries').delete().eq('id', id);
+    if (error) {
+      flash(error.message, true);
+      await loadEntries(); // restore accurate state if delete failed
+    }
   };
 
   const handleCommit = async () => {
