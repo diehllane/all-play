@@ -217,7 +217,7 @@ function ConfigTab({ config, setConfig, onSave, saving }) {
       </div>
 
       <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginTop: 24, marginBottom: 16, textTransform: 'uppercase', letterSpacing: 1 }}>Settings</h3>
-      {boolField('free_space_enabled', 'Free Space in Center (position 12)')}
+      {boolField('free_space_enabled', 'Free Space in Center (position 13)')}
 
       <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginTop: 24, marginBottom: 16, textTransform: 'uppercase', letterSpacing: 1 }}>Discord</h3>
       {field('discord_webhook_url', 'Overall Discord Webhook URL')}
