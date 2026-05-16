@@ -1,5 +1,5 @@
 // src/pages/admin/CreateEventPage.jsx
-// Step 0: pick event type (board_game | all_play | high_score | bingo[coming soon])
+// Step 0: pick event type (board_game | all_play | high_score | bingo_solo | bingo_team)
 // Then branches to type-specific wizard.
 
 import { useState } from 'react';
@@ -35,11 +35,18 @@ const EVENT_TYPES = [
     comingSoon: false,
   },
   {
-    id: 'bingo',
+    id: 'bingo_solo',
     icon: '🎯',
-    label: 'Bingo',
-    description: 'Team and solo bingo boards with custom encounter categories for each square.',
-    comingSoon: true,
+    label: 'Solo Bingo',
+    description: '5×5 bingo board. Individual players complete squares and earn bingo line bonuses.',
+    comingSoon: false,
+  },
+  {
+    id: 'bingo_team',
+    icon: '🤝',
+    label: 'Team Bingo',
+    description: '5×5 bingo board. Teams collaborate to complete rows, columns, and diagonals together.',
+    comingSoon: false,
   },
 ];
 
@@ -55,6 +62,7 @@ export default function CreateEventPage() {
   if (eventType === 'board_game') return <BoardGameWizard />;
   if (eventType === 'all_play') return <AllPlayWizard />;
   if (eventType === 'high_score') return <HighScoreWizard />;
+  if (eventType === 'bingo_solo' || eventType === 'bingo_team') return <BingoWizard eventType={eventType} />;
   return null;
 }
 
@@ -88,6 +96,262 @@ function TypePicker({ onSelect }) {
   );
 }
 
+// ── Bingo Wizard ──────────────────────────────────────────────
+
+function buildDefaultSquares(hasFreeSpace) {
+  return Array.from({ length: 25 }, (_, i) => ({
+    position: i,
+    label: i === 12 && hasFreeSpace ? 'FREE' : `Square ${i + 1}`,
+    description: '',
+    point_value: 10,
+    is_free_space: i === 12 && hasFreeSpace,
+  }));
+}
+
+function BingoWizard({ eventType }) {
+  const navigate = useNavigate();
+  const { profile } = useAuth();
+  const isTeam = eventType === 'bingo_team';
+
+  const [wizStep, setWizStep] = useState(1);
+  const [creating, setCreating] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  // Step 1: Basic info
+  const [name, setName] = useState('');
+  const [gameTitle, setGameTitle] = useState('');
+  const [gameSubtitle, setGameSubtitle] = useState('');
+  const [titleImageUrl, setTitleImageUrl] = useState('');
+  const [themeColor, setThemeColor] = useState('#c62828');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [freeSpaceEnabled, setFreeSpaceEnabled] = useState(true);
+  const [discordWebhook, setDiscordWebhook] = useState('');
+
+  // Step 2: Scoring config
+  const [scoreDivisor, setScoreDivisor] = useState(1);
+  const [scoreOperation, setScoreOperation] = useState('divide');
+  const [scoreRoundingMode, setScoreRoundingMode] = useState('ceil');
+
+  // Step 3: Bingo line values
+  const [lineValues, setLineValues] = useState({
+    row1_value: 0, row2_value: 0, row3_value: 0, row4_value: 0, row5_value: 0,
+    col1_value: 0, col2_value: 0, col3_value: 0, col4_value: 0, col5_value: 0,
+    diag1_value: 0, diag2_value: 0,
+  });
+
+  const setLineVal = (key, val) => setLineValues(prev => ({ ...prev, [key]: Number(val) }));
+
+  const handleCreate = async () => {
+    if (!name.trim()) { setMsg('Event name is required.'); return; }
+    setCreating(true);
+    setMsg('');
+    try {
+      const { data: event, error: evErr } = await supabase
+        .from('events')
+        .insert({
+          name: name.trim(),
+          slug: name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+          event_type: eventType,
+          status: 'active',
+          division_count: 1,
+          start_date: startDate || null,
+          end_date: endDate || null,
+          discord_overall_webhook: discordWebhook || null,
+          created_by: profile?.id,
+        })
+        .select()
+        .single();
+      if (evErr) throw evErr;
+
+      const { error: cfgErr } = await supabase.from('bingo_config').insert({
+        event_id: event.id,
+        event_type: isTeam ? 'team' : 'solo',
+        free_space_enabled: freeSpaceEnabled,
+        score_divisor: scoreDivisor,
+        score_operation: scoreOperation,
+        score_rounding_mode: scoreRoundingMode,
+        theme_color: themeColor,
+        title_image_url: titleImageUrl || null,
+        game_title: gameTitle || name.trim(),
+        game_subtitle: gameSubtitle || null,
+        start_date: startDate || null,
+        end_date: endDate || null,
+        discord_webhook_url: discordWebhook || null,
+        ...lineValues,
+      });
+      if (cfgErr) throw cfgErr;
+
+      const squares = buildDefaultSquares(freeSpaceEnabled).map(sq => ({
+        ...sq,
+        event_id: event.id,
+      }));
+      const { error: sqErr } = await supabase.from('bingo_squares').insert(squares);
+      if (sqErr) throw sqErr;
+
+      navigate(`/admin/bingo/${event.id}/edit`);
+    } catch (e) {
+      setMsg(e.message);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <div style={s.page}>
+      <Link to="/admin" style={s.back}>← Dashboard</Link>
+      <h1 style={s.title}>{isTeam ? '🤝' : '🎯'} New {isTeam ? 'Team' : 'Solo'} Bingo Event</h1>
+
+      {/* Step indicators */}
+      <div style={s.stepRow}>
+        {['Basics', 'Scoring', 'Line Values'].map((label, i) => (
+          <div key={i} style={{ ...s.step, ...(wizStep === i + 1 ? s.stepActive : {}) }}>
+            <span style={s.stepNum}>{i + 1}</span> {label}
+          </div>
+        ))}
+      </div>
+
+      {msg && <div style={s.msg}>{msg}</div>}
+
+      {wizStep === 1 && (
+        <div style={s.card}>
+          <h2 style={s.cardTitle}>Event Basics</h2>
+
+          <label style={s.label}>Internal Event Name *</label>
+          <input value={name} onChange={e => setName(e.target.value)} style={s.input} placeholder="e.g. Christmas Bingo 2026" />
+
+          <label style={s.label}>Display Title</label>
+          <input value={gameTitle} onChange={e => setGameTitle(e.target.value)} style={s.input} placeholder="Shown on the public board (defaults to event name)" />
+
+          <label style={s.label}>Subtitle (optional)</label>
+          <input value={gameSubtitle} onChange={e => setGameSubtitle(e.target.value)} style={s.input} />
+
+          <label style={s.label}>Title Image URL (optional)</label>
+          <input value={titleImageUrl} onChange={e => setTitleImageUrl(e.target.value)} style={s.input} placeholder="https://..." />
+
+          <label style={s.label}>Theme Color</label>
+          <input type="color" value={themeColor} onChange={e => setThemeColor(e.target.value)}
+            style={{ ...s.input, height: 40, padding: 4, width: 80 }} />
+
+          <div style={s.twoCol}>
+            <div>
+              <label style={s.label}>Start Date</label>
+              <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={s.input} />
+            </div>
+            <div>
+              <label style={s.label}>End Date</label>
+              <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={s.input} />
+            </div>
+          </div>
+
+          <label style={s.checkLabel}>
+            <input type="checkbox" checked={freeSpaceEnabled} onChange={e => setFreeSpaceEnabled(e.target.checked)} />
+            Free Space in center (position 13)
+          </label>
+
+          <label style={s.label}>Overall Discord Webhook (optional)</label>
+          <input value={discordWebhook} onChange={e => setDiscordWebhook(e.target.value)} style={s.input} placeholder="https://discord.com/api/webhooks/..." />
+
+          <div style={s.navRow}>
+            <button onClick={() => setWizStep(2)} style={s.nextBtn}>Next →</button>
+          </div>
+        </div>
+      )}
+
+      {wizStep === 2 && (
+        <div style={s.card}>
+          <h2 style={s.cardTitle}>Scoring</h2>
+
+          <div style={s.twoCol}>
+            <div>
+              <label style={s.label}>Score Divisor</label>
+              <input type="number" min={1} value={scoreDivisor} onChange={e => setScoreDivisor(Number(e.target.value))} style={s.input} />
+            </div>
+            <div>
+              <label style={s.label}>Operation</label>
+              <select value={scoreOperation} onChange={e => setScoreOperation(e.target.value)} style={s.input}>
+                <option value="divide">Divide</option>
+                <option value="multiply">Multiply</option>
+              </select>
+            </div>
+          </div>
+
+          <label style={s.label}>Score Rounding</label>
+          <select value={scoreRoundingMode} onChange={e => setScoreRoundingMode(e.target.value)} style={s.input}>
+            <option value="ceil">Ceiling (always up)</option>
+            <option value="floor">Floor (always down)</option>
+            <option value="round">Round (nearest)</option>
+          </select>
+
+          <div style={s.navRow}>
+            <button onClick={() => setWizStep(1)} style={s.backBtn}>← Back</button>
+            <button onClick={() => setWizStep(3)} style={s.nextBtn}>Next →</button>
+          </div>
+        </div>
+      )}
+
+      {wizStep === 3 && (
+        <div style={s.card}>
+          <h2 style={s.cardTitle}>Bingo Line Values</h2>
+          <p style={{ color: '#666', fontSize: 13, marginTop: 0 }}>
+            Bonus points awarded for completing each row, column, or diagonal. Set to 0 for no bonus.
+          </p>
+
+          <div style={s.twoCol}>
+            <div>
+              <div style={{ color: '#aaa', fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Rows (top → bottom)</div>
+              {[1,2,3,4,5].map(i => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <label style={{ ...s.label, margin: 0, width: 50, flexShrink: 0 }}>Row {i}</label>
+                  <input type="number" min={0} value={lineValues[`row${i}_value`]}
+                    onChange={e => setLineVal(`row${i}_value`, e.target.value)}
+                    style={{ ...s.input, width: 100 }} />
+                </div>
+              ))}
+            </div>
+            <div>
+              <div style={{ color: '#aaa', fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Columns (left → right)</div>
+              {[1,2,3,4,5].map(i => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <label style={{ ...s.label, margin: 0, width: 50, flexShrink: 0 }}>Col {i}</label>
+                  <input type="number" min={0} value={lineValues[`col${i}_value`]}
+                    onChange={e => setLineVal(`col${i}_value`, e.target.value)}
+                    style={{ ...s.input, width: 100 }} />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <div style={{ color: '#aaa', fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Diagonals</div>
+            <div style={{ display: 'flex', gap: 24 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label style={{ ...s.label, margin: 0, width: 80, flexShrink: 0 }}>Diag ↘</label>
+                <input type="number" min={0} value={lineValues.diag1_value}
+                  onChange={e => setLineVal('diag1_value', e.target.value)}
+                  style={{ ...s.input, width: 100 }} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label style={{ ...s.label, margin: 0, width: 80, flexShrink: 0 }}>Diag ↙</label>
+                <input type="number" min={0} value={lineValues.diag2_value}
+                  onChange={e => setLineVal('diag2_value', e.target.value)}
+                  style={{ ...s.input, width: 100 }} />
+              </div>
+            </div>
+          </div>
+
+          <div style={s.navRow}>
+            <button onClick={() => setWizStep(2)} style={s.backBtn}>← Back</button>
+            <button onClick={handleCreate} disabled={creating} style={s.createBtn}>
+              {creating ? 'Creating...' : 'Create Event →'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── High Score Wizard ─────────────────────────────────────────
 
 function HighScoreWizard() {
@@ -97,13 +361,10 @@ function HighScoreWizard() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
 
-  // Step 1: Basic info + mode
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
-  const [mode, setMode] = useState('solo'); // 'solo' | 'team'
+  const [mode, setMode] = useState('solo');
   const [overallWebhook, setOverallWebhook] = useState('');
-
-  // Step 2: Config
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [scoreDivisor, setScoreDivisor] = useState(1);
@@ -112,8 +373,6 @@ function HighScoreWizard() {
   const [allowHandicap, setAllowHandicap] = useState(false);
   const [themeColor, setThemeColor] = useState('#c62828');
   const [titleImageUrl, setTitleImageUrl] = useState('');
-
-  // Step 3: Categories
   const [categories, setCategories] = useState([{ name: '', multiplier: 1 }]);
 
   function addCategory() { setCategories(c => [...c, { name: '', multiplier: 1 }]); }
@@ -130,44 +389,28 @@ function HighScoreWizard() {
     setSaving(true);
     setMsg('');
     try {
-      // Create event
       const { data: ev, error: evErr } = await supabase
         .from('events')
         .insert({
-          name,
-          slug,
-          event_type: 'high_score',
-          status: 'active',
-          division_count: 1,
-          start_date: startDate || null,
-          end_date: endDate || null,
+          name, slug, event_type: 'high_score', status: 'active', division_count: 1,
+          start_date: startDate || null, end_date: endDate || null,
           discord_overall_webhook: overallWebhook || null,
           created_by: profile?.id,
         })
-        .select()
-        .single();
+        .select().single();
       if (evErr) throw evErr;
 
-      // Create hs_config
       await upsertHSConfig(ev.id, {
-        mode,
-        theme_color: themeColor,
-        title_image_url: titleImageUrl || null,
-        start_date: startDate || null,
-        end_date: endDate || null,
-        score_divisor: Number(scoreDivisor),
-        score_operation: scoreOperation,
-        score_rounding: scoreRounding,
-        allow_handicap: allowHandicap,
+        mode, theme_color: themeColor, title_image_url: titleImageUrl || null,
+        start_date: startDate || null, end_date: endDate || null,
+        score_divisor: Number(scoreDivisor), score_operation: scoreOperation,
+        score_rounding: scoreRounding, allow_handicap: allowHandicap,
       });
 
-      // Create categories
       if (categories.length > 0) {
         await supabase.from('categories').insert(
           categories.filter(c => c.name.trim()).map(c => ({
-            event_id: ev.id,
-            name: c.name.trim(),
-            multiplier: Number(c.multiplier),
+            event_id: ev.id, name: c.name.trim(), multiplier: Number(c.multiplier),
           }))
         );
       }
@@ -185,7 +428,6 @@ function HighScoreWizard() {
       <Link to="/admin" style={s.back}>← Dashboard</Link>
       <h1 style={s.title}>🏆 New High Score Event</h1>
 
-      {/* Step indicators */}
       <div style={s.stepRow}>
         {['Basics', 'Config', 'Categories'].map((label, i) => (
           <div key={i} style={{ ...s.step, ...(wizStep === i + 1 ? s.stepActive : {}) }}>
@@ -196,18 +438,14 @@ function HighScoreWizard() {
 
       {msg && <div style={s.msg}>{msg}</div>}
 
-      {/* Step 1: Basics */}
       {wizStep === 1 && (
         <div style={s.card}>
           <h2 style={s.cardTitle}>Event Basics</h2>
-
           <label style={s.label}>Event Name</label>
           <input value={name} onChange={e => setName(e.target.value)} style={s.input} placeholder="Summer High Score Challenge" />
-
           <label style={s.label}>URL Slug</label>
           <input value={slug} onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))} style={s.input} placeholder="summer-high-score-2026" />
           <div style={s.hint}>Used in the public URL. Letters, numbers, and hyphens only.</div>
-
           <label style={s.label}>Mode</label>
           <div style={s.radioRow}>
             {[['solo', '👤 Solo — individual players only'], ['team', '👥 Team — players grouped into teams']].map(([val, lbl]) => (
@@ -217,22 +455,18 @@ function HighScoreWizard() {
               </label>
             ))}
           </div>
-
           <label style={s.label}>Overall Discord Webhook (optional)</label>
           <input value={overallWebhook} onChange={e => setOverallWebhook(e.target.value)} style={s.input} placeholder="https://discord.com/api/webhooks/..." />
           <div style={s.hint}>Posts full standings to this channel on every day commit.</div>
-
           <div style={s.navRow}>
             <button onClick={() => setWizStep(2)} style={s.nextBtn}>Next →</button>
           </div>
         </div>
       )}
 
-      {/* Step 2: Config */}
       {wizStep === 2 && (
         <div style={s.card}>
           <h2 style={s.cardTitle}>Scoring & Display</h2>
-
           <div style={s.twoCol}>
             <div>
               <label style={s.label}>Start Date</label>
@@ -243,7 +477,6 @@ function HighScoreWizard() {
               <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={s.input} />
             </div>
           </div>
-
           <div style={s.twoCol}>
             <div>
               <label style={s.label}>Score Divisor</label>
@@ -257,27 +490,22 @@ function HighScoreWizard() {
               </select>
             </div>
           </div>
-
           <label style={s.label}>Score Rounding</label>
           <select value={scoreRounding} onChange={e => setScoreRounding(e.target.value)} style={s.input}>
             <option value="round">Round (nearest)</option>
             <option value="ceil">Ceiling (always up)</option>
             <option value="floor">Floor (always down)</option>
           </select>
-
           {mode === 'team' && (
             <label style={s.checkLabel}>
               <input type="checkbox" checked={allowHandicap} onChange={e => setAllowHandicap(e.target.checked)} />
               Enable handicap multipliers per team
             </label>
           )}
-
           <label style={s.label}>Theme Color</label>
           <input type="color" value={themeColor} onChange={e => setThemeColor(e.target.value)} style={{ ...s.input, height: 40, padding: 4, width: 80 }} />
-
           <label style={s.label}>Title Image URL (optional)</label>
           <input value={titleImageUrl} onChange={e => setTitleImageUrl(e.target.value)} style={s.input} placeholder="https://..." />
-
           <div style={s.navRow}>
             <button onClick={() => setWizStep(1)} style={s.backBtn}>← Back</button>
             <button onClick={() => setWizStep(3)} style={s.nextBtn}>Next →</button>
@@ -285,33 +513,20 @@ function HighScoreWizard() {
         </div>
       )}
 
-      {/* Step 3: Categories */}
       {wizStep === 3 && (
         <div style={s.card}>
           <h2 style={s.cardTitle}>Score Categories</h2>
           <p style={s.hint}>Define what players catch and how many points each is worth.</p>
-
           {categories.map((cat, i) => (
             <div key={i} style={s.catRow}>
-              <input
-                value={cat.name}
-                onChange={e => updateCategory(i, 'name', e.target.value)}
-                style={{ ...s.input, flex: 1 }}
-                placeholder="Category name (e.g. Shiny Legend)"
-              />
-              <input
-                type="number"
-                value={cat.multiplier}
-                onChange={e => updateCategory(i, 'multiplier', e.target.value)}
-                style={{ ...s.input, width: 80 }}
-                placeholder="Pts"
-                min="1"
-              />
+              <input value={cat.name} onChange={e => updateCategory(i, 'name', e.target.value)}
+                style={{ ...s.input, flex: 1 }} placeholder="Category name (e.g. Shiny Legend)" />
+              <input type="number" value={cat.multiplier} onChange={e => updateCategory(i, 'multiplier', e.target.value)}
+                style={{ ...s.input, width: 80 }} placeholder="Pts" min="1" />
               <button onClick={() => removeCategory(i)} style={s.removeBtn}>✕</button>
             </div>
           ))}
           <button onClick={addCategory} style={s.addCatBtn}>+ Add Category</button>
-
           <div style={s.navRow}>
             <button onClick={() => setWizStep(2)} style={s.backBtn}>← Back</button>
             <button onClick={handleCreate} disabled={saving} style={s.createBtn}>
@@ -324,7 +539,7 @@ function HighScoreWizard() {
   );
 }
 
-// ── Board Game Wizard (delegates to existing flow) ────────────
+// ── Board Game Wizard ─────────────────────────────────────────
 
 function BoardGameWizard() {
   const navigate = useNavigate();
@@ -349,23 +564,13 @@ function BoardGameWizard() {
         .select().single();
       if (error) throw error;
 
-      // Create default board config
       await supabase.from('board_game_config').insert({
-        event_id: ev.id,
-        track_length: 252,
-        grid_columns: 18,
-        score_divisor: 2,
-        score_operation: 'divide',
-        score_rounding: 'ceil',
-        min_moves_per_day: 1,
-        max_moves_per_day: 0,
-        theme_color: '#c62828',
-        badge_bonus_enabled: true,
-        show_badge_sidebar: true,
-        show_flavor_text: true,
+        event_id: ev.id, track_length: 252, grid_columns: 18, score_divisor: 2,
+        score_operation: 'divide', score_rounding: 'ceil', min_moves_per_day: 1,
+        max_moves_per_day: 0, theme_color: '#c62828', badge_bonus_enabled: true,
+        show_badge_sidebar: true, show_flavor_text: true,
       });
 
-      // Insert default Kanto/Johto squares
       const defaultSquares = [
         { square_number: 0,   type: 'start',        label: 'Start',               icon: '🏁' },
         { square_number: 125, type: 'center',        label: 'Indigo Plateau',      icon: '🏥' },
@@ -402,10 +607,9 @@ function BoardGameWizard() {
         { square_number: 230, type: 'penalty_jump', label: 'Setback!',   icon: '⬇️', jump_to: 218 },
         ...[8,22,48,62,78,100,115,135,150,168,190,210,235,248].map(n => ({ square_number: n, type: 'bonus_small',   icon: '✨', move_amount: 2, label: '+2 Steps' })),
         ...[12,30,52,73,90,108,118,145,162,175,200,220,240,245].map(n => ({ square_number: n, type: 'penalty_small', icon: '💢', move_amount: 2, label: '-2 Steps' })),
-      ].map(s => ({ ...s, event_id: ev.id }));
+      ].map(sq => ({ ...sq, event_id: ev.id }));
 
       await supabase.from('board_squares').insert(defaultSquares);
-
       navigate(`/admin/board/${ev.id}`);
     } catch (e) { setMsg(e.message); }
     finally { setSaving(false); }
@@ -423,7 +627,7 @@ function BoardGameWizard() {
         <input value={slug} onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))} style={s.input} placeholder="summer-board-game-2026" />
         <label style={s.label}>Overall Discord Webhook (optional)</label>
         <input value={overallWebhook} onChange={e => setOverallWebhook(e.target.value)} style={s.input} placeholder="https://discord.com/api/webhooks/..." />
-        <div style={s.hint}>Posts full board standings on every day commit. Configure player-level webhooks in the event editor after creation.</div>
+        <div style={s.hint}>Posts full board standings on every day commit.</div>
         <div style={s.navRow}>
           <button onClick={handleCreate} disabled={saving} style={s.createBtn}>
             {saving ? 'Creating...' : 'Create Event'}
@@ -434,7 +638,7 @@ function BoardGameWizard() {
   );
 }
 
-// ── All-Play Wizard (existing flow, slimmed) ──────────────────
+// ── All-Play Wizard ───────────────────────────────────────────
 
 function AllPlayWizard() {
   const navigate = useNavigate();
@@ -463,12 +667,10 @@ function AllPlayWizard() {
         .select().single();
       if (error) throw error;
 
-      // Create division rows
       const count = Number(numDivisions) || 1;
       await supabase.from('divisions').insert(
         Array.from({ length: count }, (_, i) => ({
-          event_id: ev.id,
-          division_number: i + 1,
+          event_id: ev.id, division_number: i + 1,
           name: count === 1 ? 'Division 1' : `Division ${i + 1}`,
         }))
       );
@@ -530,7 +732,7 @@ const s = {
   back: { color: '#888', textDecoration: 'none', fontSize: 13, display: 'block', marginBottom: 12 },
   title: { color: '#fff', fontSize: 24, marginBottom: 6 },
   subtitle: { color: '#888', fontSize: 15, marginBottom: 24 },
-  typeGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 },
+  typeGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16 },
   typeCard: { background: '#1a1a1a', border: '1px solid #333', borderRadius: 10, padding: 20, cursor: 'pointer', textAlign: 'left', transition: 'border-color .15s', color: '#fff' },
   typeCardDisabled: { opacity: 0.5, cursor: 'default', background: '#111' },
   typeIcon: { fontSize: 32, marginBottom: 8 },
