@@ -24,6 +24,7 @@ export default function HomePage() {
   const boardGames = events.filter(e => e.event_type === 'board_game');
   const allPlay = events.filter(e => e.event_type === 'all_play');
   const highScore = events.filter(e => e.event_type === 'high_score');
+  const bingo = events.filter(e => ['bingo_solo', 'bingo_team'].includes(e.event_type));
 
   return (
     <div style={s.page}>
@@ -72,6 +73,19 @@ export default function HomePage() {
                   event={e}
                   viewPath={`/events/${e.slug}/standings`}
                   typeBadge="All-Play"
+                />
+              ))}
+            </Section>
+          )}
+
+          {bingo.length > 0 && (
+            <Section title="🎯 Bingo Events">
+              {bingo.map(e => (
+                <EventCard
+                  key={e.id}
+                  event={e}
+                  viewPath={`/bingo/${e.id}`}
+                  typeBadge={e.event_type === 'bingo_team' ? 'Team Bingo' : 'Solo Bingo'}
                 />
               ))}
             </Section>
