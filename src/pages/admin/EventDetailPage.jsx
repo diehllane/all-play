@@ -211,7 +211,7 @@ export default function EventDetailPage() {
     setSaving(false)
   }
 
-  const isOwner = profile?.role === 'event_runner'
+  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner'
   const winnersConfig = bracketConfig.filter(c => c.bracket_type === 'winners')
   const losersConfig = bracketConfig.filter(c => c.bracket_type === 'losers')
 
@@ -230,7 +230,7 @@ export default function EventDetailPage() {
           <Link to={`/admin/events/${id}/scores`} className="btn btn-primary">Enter Scores</Link>
           <Link to={`/admin/events/${id}/export`} className="btn btn-secondary">Export XLSX</Link>
           <Link to={`/events/${event?.slug}/standings`} className="btn btn-secondary">Public View ↗</Link>
-          {isOwner && <Link to={`/admin/events/${id}/scorers`} className="btn btn-secondary">Manage Scorers</Link>}
+          {canManage && <Link to={`/admin/events/${id}/scorers`} className="btn btn-secondary">Manage Scorers</Link>}
         </div>
       </div>
 
@@ -253,7 +253,7 @@ export default function EventDetailPage() {
               <div className="stat-card"><div className="stat-label">Schedule Days</div><div className="stat-value">{schedule.length > 0 ? Math.max(...schedule.map(s => s.day_number)) : 0}</div></div>
               <div className="stat-card"><div className="stat-label">Status</div><div className="stat-value" style={{ fontSize: '1.1rem' }}>{event.status}</div></div>
             </div>
-            {isOwner && (
+            {canManage && (
               <div className="card" style={{ marginTop: '1.5rem' }}>
                 <div className="card-title">Event Controls</div>
                 <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -285,8 +285,7 @@ export default function EventDetailPage() {
         {/* ── Teams ── */}
         {activeTab === 'teams' && (
           <div>
-            {/* Add Division */}
-            {isOwner && (
+            {canManage && (
               <div className="card" style={{ marginBottom: '1.5rem' }}>
                 <div className="card-title">Divisions</div>
                 {divisions.map(div => (
@@ -302,7 +301,6 @@ export default function EventDetailPage() {
               </div>
             )}
 
-            {/* Teams by division */}
             {divisions.map(div => {
               const divTeams = teams.filter(t => t.division_id === div.id).sort((a, b) => a.team_number - b.team_number)
               return (
@@ -311,7 +309,7 @@ export default function EventDetailPage() {
                   <div className="card" style={{ padding: 0 }}>
                     <div className="table-container">
                       <table>
-                        <thead><tr><th>#</th><th>Name</th><th>Display Name</th><th>Discord Webhook</th>{isOwner && <th></th>}</tr></thead>
+                        <thead><tr><th>#</th><th>Name</th><th>Display Name</th><th>Discord Webhook</th>{canManage && <th></th>}</tr></thead>
                         <tbody>
                           {divTeams.length === 0
                             ? <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1rem' }}>No teams yet</td></tr>
@@ -321,7 +319,7 @@ export default function EventDetailPage() {
                                   <td>{team.name}</td>
                                   <td style={{ color: 'var(--text-muted)' }}>{team.display_name}</td>
                                   <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{team.discord_webhook_url ? '✓ Set' : '—'}</td>
-                                  {isOwner && <td><button className="btn btn-danger btn-sm" onClick={() => handleDeleteTeam(team.id)}>Remove</button></td>}
+                                  {canManage && <td><button className="btn btn-danger btn-sm" onClick={() => handleDeleteTeam(team.id)}>Remove</button></td>}
                                 </tr>
                               ))
                           }
@@ -333,8 +331,7 @@ export default function EventDetailPage() {
               )
             })}
 
-            {/* Add Team form */}
-            {isOwner && divisions.length > 0 && (
+            {canManage && divisions.length > 0 && (
               <div className="card">
                 <div className="card-title">Add Team</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
@@ -362,7 +359,7 @@ export default function EventDetailPage() {
               </div>
             )}
 
-            {divisions.length === 0 && !isOwner && (
+            {divisions.length === 0 && !canManage && (
               <div className="empty-state"><h3>No divisions or teams yet.</h3></div>
             )}
           </div>
@@ -374,7 +371,7 @@ export default function EventDetailPage() {
             <div className="card-title">Encounter Categories</div>
             <div className="table-container">
               <table>
-                <thead><tr><th>Category</th><th>Points per Encounter</th>{isOwner && <th></th>}</tr></thead>
+                <thead><tr><th>Category</th><th>Points per Encounter</th>{canManage && <th></th>}</tr></thead>
                 <tbody>
                   {categories.length === 0
                     ? <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '1rem' }}>No categories yet</td></tr>
@@ -382,14 +379,14 @@ export default function EventDetailPage() {
                         <tr key={cat.id}>
                           <td style={{ fontWeight: 600 }}>{cat.name}</td>
                           <td className="mono">{cat.multiplier}</td>
-                          {isOwner && <td><button className="btn btn-danger btn-sm" onClick={() => handleDeleteCategory(cat.id)}>Remove</button></td>}
+                          {canManage && <td><button className="btn btn-danger btn-sm" onClick={() => handleDeleteCategory(cat.id)}>Remove</button></td>}
                         </tr>
                       ))
                   }
                 </tbody>
               </table>
             </div>
-            {isOwner && (
+            {canManage && (
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <div className="form-group" style={{ margin: 0, flex: 1 }}>
                   <label className="form-label">Category Name</label>
@@ -435,7 +432,7 @@ export default function EventDetailPage() {
         )}
 
         {/* ── Settings ── */}
-        {activeTab === 'settings' && isOwner && (
+        {activeTab === 'settings' && canManage && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <div className="card">
               <div className="card-title">Manual Status Override</div>
