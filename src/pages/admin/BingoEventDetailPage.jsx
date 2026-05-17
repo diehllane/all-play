@@ -108,6 +108,11 @@ export default function BingoEventDetailPage() {
             Edit Board & Config
           </Link>
           {canManage && (
+            <Link to={`/admin/events/${eventId}/scorers`} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+              Manage Scorers
+            </Link>
+          )}
+          {canManage && (
             <button onClick={handleDelete} disabled={deleting}
               style={{ marginLeft: 'auto', background: 'none', border: '1px solid #ef4444', color: '#ef4444', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               {deleting ? 'Deleting...' : 'Delete Event'}

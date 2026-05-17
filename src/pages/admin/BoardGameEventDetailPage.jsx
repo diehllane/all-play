@@ -125,7 +125,7 @@ export default function BoardGameEventDetailPage() {
           <h2 style={{ margin: '4px 0' }}>{event?.name}</h2>
           <span style={{ fontSize: 12, opacity: 0.6, background: '#c62828', padding: '2px 8px', borderRadius: 10 }}>Board Game</span>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <Link to={`/board/${eventId}`}
             style={{ padding: '8px 16px', background: '#1e1e2e', border: '1px solid #444', color: '#fff', borderRadius: 6, textDecoration: 'none', fontSize: 13 }}>
             🎮 View Board
@@ -138,6 +138,12 @@ export default function BoardGameEventDetailPage() {
             style={{ padding: '8px 16px', background: '#1a2a3a', border: '1px solid #1565c0', color: '#fff', borderRadius: 6, textDecoration: 'none', fontSize: 13 }}>
             ✏️ Edit Board
           </Link>
+          {canManage && (
+            <Link to={`/admin/events/${eventId}/scorers`}
+              style={{ padding: '8px 16px', background: '#1e1e2e', border: '1px solid #444', color: '#fff', borderRadius: 6, textDecoration: 'none', fontSize: 13 }}>
+              👥 Manage Scorers
+            </Link>
+          )}
           <button onClick={handleExport}
             style={{ padding: '8px 16px', background: '#1a3a1a', border: '1px solid #2e7d32', color: '#fff', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
             📥 Export XLSX

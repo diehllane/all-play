@@ -173,6 +173,9 @@ export default function HighScoreEventDetailPage() {
         <div style={s.topActions}>
           <Link to={`/admin/highscore/${eventId}/scores`} style={s.actionBtn}>Enter Scores</Link>
           <Link to={`/highscore/${eventId}`} style={s.actionBtn}>Public Page</Link>
+          {canManage && (
+            <Link to={`/admin/events/${eventId}/scorers`} style={s.secondaryBtn}>Manage Scorers</Link>
+          )}
           <button onClick={handleExport} style={s.secondaryBtn}>Export XLSX</button>
           {canManage && (
             <button onClick={handleDeleteEvent} style={s.dangerBtn}>Delete Event</button>
@@ -391,7 +394,7 @@ const s = {
   typeBadge: { background: '#2a2a2a', color: '#aaa', borderRadius: 4, padding: '2px 8px', fontSize: 12 },
   topActions: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' },
   actionBtn: { background: ACC, color: '#fff', border: 'none', borderRadius: 6, padding: '8px 14px', cursor: 'pointer', textDecoration: 'none', fontSize: 13 },
-  secondaryBtn: { background: '#222', color: '#ccc', border: '1px solid #444', borderRadius: 6, padding: '8px 14px', cursor: 'pointer', fontSize: 13 },
+  secondaryBtn: { background: '#222', color: '#ccc', border: '1px solid #444', borderRadius: 6, padding: '8px 14px', cursor: 'pointer', fontSize: 13, textDecoration: 'none' },
   dangerBtn: { background: '#5c1a1a', color: '#ff8a8a', border: '1px solid #7a2020', borderRadius: 6, padding: '8px 14px', cursor: 'pointer', fontSize: 13 },
   msg: { background: '#1e1e1e', border: '1px solid #444', borderRadius: 6, padding: '10px 14px', color: '#ffb', marginBottom: 16 },
   tabs: { display: 'flex', gap: 0, borderBottom: '1px solid #333', marginBottom: 20 },
