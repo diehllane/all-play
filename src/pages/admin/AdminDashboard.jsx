@@ -9,7 +9,8 @@ const ACC = '#c62828';
 
 export default function AdminDashboard() {
   const { profile } = useAuth();
-  const isRunner = profile?.role === 'event_runner';
+  const isOwner = profile?.role === 'owner';
+  const canCreateEvents = isOwner || profile?.role === 'event_runner';
 
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -37,7 +38,10 @@ export default function AdminDashboard() {
         <h1 style={s.title}>Admin Dashboard</h1>
         <div style={s.headerRight}>
           <span style={s.roleTag}>{profile?.role}</span>
-          {isRunner && (
+          {isOwner && (
+            <Link to="/admin/owner" style={s.ownerBtn}>⚙ Owner Panel</Link>
+          )}
+          {canCreateEvents && (
             <Link to="/admin/events/create" style={s.createBtn}>+ Create Event</Link>
           )}
         </div>
@@ -133,6 +137,7 @@ const s = {
   title: { color: '#fff', fontSize: 22, margin: 0 },
   headerRight: { display: 'flex', alignItems: 'center', gap: 12 },
   roleTag: { background: '#2a2a2a', color: '#888', borderRadius: 4, padding: '3px 10px', fontSize: 12 },
+  ownerBtn: { background: '#2a2a2a', color: '#aaa', borderRadius: 6, padding: '8px 16px', textDecoration: 'none', fontSize: 13, fontWeight: 600, border: '1px solid #3a3a3a' },
   createBtn: { background: ACC, color: '#fff', borderRadius: 6, padding: '8px 16px', textDecoration: 'none', fontSize: 13, fontWeight: 700 },
   loading: { color: '#888', textAlign: 'center', padding: 40 },
   section: { marginBottom: 32 },
