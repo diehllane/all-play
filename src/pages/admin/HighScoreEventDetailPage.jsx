@@ -18,7 +18,7 @@ export default function HighScoreEventDetailPage() {
   const { id: eventId } = useParams();
   const { profile } = useAuth();
   const navigate = useNavigate();
-  const isRunner = profile?.role === 'event_runner';
+  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
 
   const [event, setEvent] = useState(null);
   const [config, setConfig] = useState(null);
@@ -31,15 +31,10 @@ export default function HighScoreEventDetailPage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [msg, setMsg] = useState('');
 
-  // New team form
   const [newTeam, setNewTeam] = useState({ name: '', avatar_url: '', handicap_multiplier: 1, discord_webhook_url: '' });
   const [editTeam, setEditTeam] = useState(null);
-
-  // New player form
   const [newPlayer, setNewPlayer] = useState({ name: '', avatar_url: '', team_id: '' });
   const [editPlayer, setEditPlayer] = useState(null);
-
-  // New category form
   const [newCat, setNewCat] = useState({ name: '', multiplier: 1 });
 
   useEffect(() => { loadAll(); }, [eventId]);
@@ -71,8 +66,6 @@ export default function HighScoreEventDetailPage() {
     }
   }
 
-  // ── Teams ─────────────────────────────────────────────────
-
   async function handleAddTeam() {
     if (!newTeam.name.trim()) return;
     try {
@@ -101,8 +94,6 @@ export default function HighScoreEventDetailPage() {
     await deleteHSTeam(id);
     await loadAll();
   }
-
-  // ── Players ───────────────────────────────────────────────
 
   async function handleAddPlayer() {
     if (!newPlayer.name.trim()) return;
@@ -136,8 +127,6 @@ export default function HighScoreEventDetailPage() {
     await loadAll();
   }
 
-  // ── Categories ────────────────────────────────────────────
-
   async function handleAddCategory() {
     if (!newCat.name.trim()) return;
     const { error } = await supabase.from('categories').insert({
@@ -153,8 +142,6 @@ export default function HighScoreEventDetailPage() {
     await loadAll();
   }
 
-  // ── Delete event ──────────────────────────────────────────
-
   async function handleDeleteEvent() {
     if (!confirm(`Delete "${event?.name}" and all data? This cannot be undone.`)) return;
     if (!confirm('Are you absolutely sure?')) return;
@@ -162,8 +149,6 @@ export default function HighScoreEventDetailPage() {
     if (error) { setMsg(error.message); return; }
     navigate('/admin');
   }
-
-  // ── Export ────────────────────────────────────────────────
 
   function handleExport() {
     exportHighScoreXLSX(event?.name || 'Event', config, teams, players, dailyTotals, commits, categories);
@@ -189,7 +174,7 @@ export default function HighScoreEventDetailPage() {
           <Link to={`/admin/highscore/${eventId}/scores`} style={s.actionBtn}>Enter Scores</Link>
           <Link to={`/highscore/${eventId}`} style={s.actionBtn}>Public Page</Link>
           <button onClick={handleExport} style={s.secondaryBtn}>Export XLSX</button>
-          {isRunner && (
+          {canManage && (
             <button onClick={handleDeleteEvent} style={s.dangerBtn}>Delete Event</button>
           )}
         </div>
@@ -197,7 +182,6 @@ export default function HighScoreEventDetailPage() {
 
       {msg && <div style={s.msg}>{msg}</div>}
 
-      {/* Tabs */}
       <div style={s.tabs}>
         {tabs.map(t => (
           <button key={t} onClick={() => setActiveTab(t)} style={activeTab === t ? s.tabActive : s.tab}>
@@ -206,7 +190,6 @@ export default function HighScoreEventDetailPage() {
         ))}
       </div>
 
-      {/* ── Overview ── */}
       {activeTab === 'overview' && (
         <div style={s.section}>
           <div style={s.statsRow}>
@@ -260,7 +243,6 @@ export default function HighScoreEventDetailPage() {
         </div>
       )}
 
-      {/* ── Teams ── */}
       {activeTab === 'teams' && config?.mode === 'team' && (
         <div style={s.section}>
           <h3 style={s.sectionHead}>Teams</h3>
@@ -270,7 +252,7 @@ export default function HighScoreEventDetailPage() {
                 <input value={editTeam.name} onChange={e => setEditTeam(p => ({ ...p, name: e.target.value }))} style={s.input} placeholder="Team name" />
                 <input value={editTeam.avatar_url} onChange={e => setEditTeam(p => ({ ...p, avatar_url: e.target.value }))} style={s.input} placeholder="Avatar URL" />
                 <input value={editTeam.handicap_multiplier} type="number" step="0.1" onChange={e => setEditTeam(p => ({ ...p, handicap_multiplier: e.target.value }))} style={{ ...s.input, width: 80 }} placeholder="Handicap" />
-                <input value={editTeam.discord_webhook_url} onChange={e => setEditTeam(p => ({ ...p, discord_webhook_url: e.target.value }))} style={s.input} placeholder="Discord webhook URL (team channel)" />
+                <input value={editTeam.discord_webhook_url} onChange={e => setEditTeam(p => ({ ...p, discord_webhook_url: e.target.value }))} style={s.input} placeholder="Discord webhook URL" />
                 <button onClick={handleSaveTeam} style={s.saveBtn}>Save</button>
                 <button onClick={() => setEditTeam(null)} style={s.cancelBtn}>Cancel</button>
               </div>
@@ -280,18 +262,20 @@ export default function HighScoreEventDetailPage() {
                 <span style={s.listName}>{t.name}</span>
                 {config?.allow_handicap && <span style={s.badge}>×{t.handicap_multiplier}</span>}
                 {t.discord_webhook_url && <span style={s.badge}>Discord ✓</span>}
-                <button onClick={() => setEditTeam({ ...t })} style={s.editBtn}>Edit</button>
-                <button onClick={() => handleDeleteTeam(t.id)} style={s.deleteBtn}>Remove</button>
+                {canManage && <button onClick={() => setEditTeam({ ...t })} style={s.editBtn}>Edit</button>}
+                {canManage && <button onClick={() => handleDeleteTeam(t.id)} style={s.deleteBtn}>Remove</button>}
               </div>
             )
           ))}
-          <div style={s.addRow}>
-            <input value={newTeam.name} onChange={e => setNewTeam(p => ({ ...p, name: e.target.value }))} style={s.input} placeholder="New team name" />
-            <input value={newTeam.avatar_url} onChange={e => setNewTeam(p => ({ ...p, avatar_url: e.target.value }))} style={s.input} placeholder="Avatar URL (optional)" />
-            <input value={newTeam.handicap_multiplier} type="number" step="0.1" onChange={e => setNewTeam(p => ({ ...p, handicap_multiplier: e.target.value }))} style={{ ...s.input, width: 80 }} placeholder="Handicap ×" />
-            <input value={newTeam.discord_webhook_url} onChange={e => setNewTeam(p => ({ ...p, discord_webhook_url: e.target.value }))} style={s.input} placeholder="Discord webhook URL (optional)" />
-            <button onClick={handleAddTeam} style={s.addBtn}>+ Add Team</button>
-          </div>
+          {canManage && (
+            <div style={s.addRow}>
+              <input value={newTeam.name} onChange={e => setNewTeam(p => ({ ...p, name: e.target.value }))} style={s.input} placeholder="New team name" />
+              <input value={newTeam.avatar_url} onChange={e => setNewTeam(p => ({ ...p, avatar_url: e.target.value }))} style={s.input} placeholder="Avatar URL (optional)" />
+              <input value={newTeam.handicap_multiplier} type="number" step="0.1" onChange={e => setNewTeam(p => ({ ...p, handicap_multiplier: e.target.value }))} style={{ ...s.input, width: 80 }} placeholder="Handicap ×" />
+              <input value={newTeam.discord_webhook_url} onChange={e => setNewTeam(p => ({ ...p, discord_webhook_url: e.target.value }))} style={s.input} placeholder="Discord webhook URL (optional)" />
+              <button onClick={handleAddTeam} style={s.addBtn}>+ Add Team</button>
+            </div>
+          )}
         </div>
       )}
 
@@ -301,7 +285,6 @@ export default function HighScoreEventDetailPage() {
         </div>
       )}
 
-      {/* ── Players ── */}
       {activeTab === 'players' && (
         <div style={s.section}>
           <h3 style={s.sectionHead}>Players</h3>
@@ -324,26 +307,27 @@ export default function HighScoreEventDetailPage() {
                 {p.avatar_url && <img src={p.avatar_url} style={s.avatar} alt="" />}
                 <span style={s.listName}>{p.name}</span>
                 {p.hs_teams && <span style={s.badge}>{p.hs_teams.name}</span>}
-                <button onClick={() => setEditPlayer({ ...p })} style={s.editBtn}>Edit</button>
-                <button onClick={() => handleDeletePlayer(p.id)} style={s.deleteBtn}>Remove</button>
+                {canManage && <button onClick={() => setEditPlayer({ ...p })} style={s.editBtn}>Edit</button>}
+                {canManage && <button onClick={() => handleDeletePlayer(p.id)} style={s.deleteBtn}>Remove</button>}
               </div>
             )
           ))}
-          <div style={s.addRow}>
-            <input value={newPlayer.name} onChange={e => setNewPlayer(p => ({ ...p, name: e.target.value }))} style={s.input} placeholder="Player name" />
-            <input value={newPlayer.avatar_url} onChange={e => setNewPlayer(p => ({ ...p, avatar_url: e.target.value }))} style={s.input} placeholder="Avatar URL (optional)" />
-            {config?.mode === 'team' && (
-              <select value={newPlayer.team_id} onChange={e => setNewPlayer(p => ({ ...p, team_id: e.target.value }))} style={s.select}>
-                <option value="">No team</option>
-                {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
-            )}
-            <button onClick={handleAddPlayer} style={s.addBtn}>+ Add Player</button>
-          </div>
+          {canManage && (
+            <div style={s.addRow}>
+              <input value={newPlayer.name} onChange={e => setNewPlayer(p => ({ ...p, name: e.target.value }))} style={s.input} placeholder="Player name" />
+              <input value={newPlayer.avatar_url} onChange={e => setNewPlayer(p => ({ ...p, avatar_url: e.target.value }))} style={s.input} placeholder="Avatar URL (optional)" />
+              {config?.mode === 'team' && (
+                <select value={newPlayer.team_id} onChange={e => setNewPlayer(p => ({ ...p, team_id: e.target.value }))} style={s.select}>
+                  <option value="">No team</option>
+                  {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              )}
+              <button onClick={handleAddPlayer} style={s.addBtn}>+ Add Player</button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* ── Categories ── */}
       {activeTab === 'categories' && (
         <div style={s.section}>
           <h3 style={s.sectionHead}>Score Categories</h3>
@@ -351,18 +335,19 @@ export default function HighScoreEventDetailPage() {
             <div key={c.id} style={s.listRow}>
               <span style={s.listName}>{c.name}</span>
               <span style={s.badge}>{c.multiplier} pts</span>
-              <button onClick={() => handleDeleteCategory(c.id)} style={s.deleteBtn}>Remove</button>
+              {canManage && <button onClick={() => handleDeleteCategory(c.id)} style={s.deleteBtn}>Remove</button>}
             </div>
           ))}
-          <div style={s.addRow}>
-            <input value={newCat.name} onChange={e => setNewCat(p => ({ ...p, name: e.target.value }))} style={s.input} placeholder="Category name" />
-            <input value={newCat.multiplier} type="number" onChange={e => setNewCat(p => ({ ...p, multiplier: e.target.value }))} style={{ ...s.input, width: 80 }} placeholder="Pts" />
-            <button onClick={handleAddCategory} style={s.addBtn}>+ Add</button>
-          </div>
+          {canManage && (
+            <div style={s.addRow}>
+              <input value={newCat.name} onChange={e => setNewCat(p => ({ ...p, name: e.target.value }))} style={s.input} placeholder="Category name" />
+              <input value={newCat.multiplier} type="number" onChange={e => setNewCat(p => ({ ...p, multiplier: e.target.value }))} style={{ ...s.input, width: 80 }} placeholder="Pts" />
+              <button onClick={handleAddCategory} style={s.addBtn}>+ Add</button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* ── Commits ── */}
       {activeTab === 'commits' && (
         <div style={s.section}>
           <h3 style={s.sectionHead}>Commit History</h3>

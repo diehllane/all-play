@@ -8,7 +8,7 @@ export default function BingoScoreEntryPage() {
   const { eventId } = useParams();
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const isRunner = profile?.role === 'event_runner';
+  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
 
   const [config, setConfig] = useState(null);
   const [squares, setSquares] = useState([]);
@@ -244,7 +244,7 @@ export default function BingoScoreEntryPage() {
         )}
 
         {/* Commit / Undo */}
-        {isRunner && (
+        {canManage && (
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <button onClick={handleCommit} disabled={committing || entries.length === 0}
               style={{ background: entries.length > 0 ? themeColor : 'var(--border)', color: 'var(--text)', border: 'none', borderRadius: 8, padding: '12px 28px', fontSize: 15, fontWeight: 700, cursor: entries.length > 0 ? 'pointer' : 'not-allowed' }}>

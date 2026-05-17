@@ -9,7 +9,7 @@ export default function BoardGameEventDetailPage() {
   const { eventId } = useParams();
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const isRunner = profile?.role === 'event_runner';
+  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
 
   const [event, setEvent]         = useState(null);
   const [config, setConfig]       = useState(null);
@@ -156,7 +156,7 @@ export default function BoardGameEventDetailPage() {
         <div style={{ background: '#1e1e2e', borderRadius: 8, padding: 16, marginBottom: 20, border: '1px solid #2a2a3e' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <h3 style={{ margin: 0, fontSize: 14 }}>Board Configuration</h3>
-            {isRunner && (
+            {canManage && (
               <Link to={`/admin/board/${eventId}/edit`} style={{ fontSize: 12, color: themeColor, textDecoration: 'none' }}>Edit →</Link>
             )}
           </div>
@@ -224,7 +224,7 @@ export default function BoardGameEventDetailPage() {
               </div>
               <div style={{ display: 'flex', gap: 16, alignItems: 'center', opacity: 0.7 }}>
                 <span>Sq {pos?.position ?? 0}</span>
-                {isRunner && (
+                {canManage && (
                   <button onClick={() => handleRemovePlayer(p.id)}
                     style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 16 }}>✕</button>
                 )}
@@ -232,7 +232,7 @@ export default function BoardGameEventDetailPage() {
             </div>
           );
         })}
-        {isRunner && (
+        {canManage && (
           <div style={{ marginTop: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <input value={newPlayerName} onChange={e => setNewPlayerName(e.target.value)}
               placeholder="Player name"
@@ -254,7 +254,7 @@ export default function BoardGameEventDetailPage() {
           <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 0', borderBottom: '1px solid #2a2a3e', fontSize: 13 }}>
             <span style={{ flex: 1 }}>{c.name}</span>
             <span style={{ color: '#ffd700', minWidth: 55 }}>{c.multiplier} pts</span>
-            {isRunner && (
+            {canManage && (
               <button onClick={() => handleDeleteCategory(c.id)}
                 style={{ background: 'none', border: '1px solid #4a1010', color: '#ef5350', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', fontSize: 12 }}>
                 Remove
@@ -262,7 +262,7 @@ export default function BoardGameEventDetailPage() {
             )}
           </div>
         ))}
-        {isRunner && (
+        {canManage && (
           <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
             <input
               value={newCatName}
@@ -286,7 +286,7 @@ export default function BoardGameEventDetailPage() {
         )}
       </div>
 
-      {isRunner && (
+      {canManage && (
         <div style={{ background: '#1e0a0a', borderRadius: 8, padding: 16, border: '1px solid #4a1010' }}>
           <h3 style={{ margin: '0 0 8px 0', fontSize: 14, color: '#ef5350' }}>Danger Zone</h3>
           <p style={{ fontSize: 13, opacity: 0.7, margin: '0 0 12px 0' }}>

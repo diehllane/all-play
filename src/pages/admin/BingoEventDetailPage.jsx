@@ -7,7 +7,7 @@ export default function BingoEventDetailPage() {
   const { eventId } = useParams();
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const isRunner = profile?.role === 'event_runner';
+  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
 
   const [event, setEvent] = useState(null);
   const [config, setConfig] = useState(null);
@@ -55,7 +55,6 @@ export default function BingoEventDetailPage() {
   const handleDelete = async () => {
     if (!window.confirm('Delete this Bingo event and ALL associated data? This cannot be undone.')) return;
     setDeleting(true);
-    // Cascade deletes via FK, but let's be explicit
     await supabase.from('bingo_score_entries').delete().eq('event_id', eventId);
     await supabase.from('bingo_lines_completed').delete().eq('event_id', eventId);
     await supabase.from('bingo_square_completions').delete().eq('event_id', eventId);
@@ -108,7 +107,7 @@ export default function BingoEventDetailPage() {
           <Link to={`/admin/bingo/${eventId}/edit`} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
             Edit Board & Config
           </Link>
-          {isRunner && (
+          {canManage && (
             <button onClick={handleDelete} disabled={deleting}
               style={{ marginLeft: 'auto', background: 'none', border: '1px solid #ef4444', color: '#ef4444', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               {deleting ? 'Deleting...' : 'Delete Event'}
