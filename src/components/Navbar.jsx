@@ -5,6 +5,7 @@ export default function Navbar({ eventSlug, eventName }) {
   const { user, profile, signOut } = useAuth()
   const location = useLocation()
   const isAdmin = location.pathname.startsWith('/admin')
+  const isOwner = profile?.role === 'owner'
 
   return (
     <nav className="navbar">
@@ -34,8 +35,11 @@ export default function Navbar({ eventSlug, eventName }) {
 
           {user ? (
             <>
-              <li><Link to="/admin" className={isAdmin ? 'active' : ''}>Dashboard</Link></li>
-              <li><Link to="/change-password" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Change Password</Link></li>
+              <li><Link to="/admin" className={isAdmin && !location.pathname.startsWith('/admin/owner') ? 'active' : ''}>Dashboard</Link></li>
+              {isOwner && (
+                <li><Link to="/admin/owner" className={location.pathname.startsWith('/admin/owner') ? 'active' : ''}>Owner Panel</Link></li>
+              )}
+              <li><Link to="/admin/change-password" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Change Password</Link></li>
               <li>
                 <button
                   onClick={signOut}
