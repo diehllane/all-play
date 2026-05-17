@@ -226,3 +226,4 @@ const s = {
   createBtn: { background: ACC, color: '#fff', border: 'none', borderRadius: 6, padding: '9px 20px', fontSize: 14, fontWeight: 700, cursor: 'pointer', alignSelf: 'flex-start' },
   note: { background: '#111', border: '1px solid #2a2a2a', borderRadius: 6, padding: '10px 14px', fontSize: 12, color: '#888', marginTop: 16 },
 };
+
