@@ -29,14 +29,24 @@ import HighScoreScoreEntryPage from './pages/admin/HighScoreScoreEntryPage';
 import BingoEventDetailPage from './pages/admin/BingoEventDetailPage';
 import BingoScoreEntryPage from './pages/admin/BingoScoreEntryPage';
 import BingoEditPage from './pages/admin/BingoEditPage';
+import OwnerPage from './pages/admin/OwnerPage';
 
 const BASE = '/all-play';
 
-// Simple auth guard — redirects to /login if not authenticated
+// Redirects to /login if not authenticated
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
+
+// Redirects to /admin if authenticated but not an owner
+function RequireOwner({ children }) {
+  const { user, profile, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <Navigate to="/login" replace />;
+  if (profile && profile.role !== 'owner') return <Navigate to="/admin" replace />;
   return children;
 }
 
@@ -57,6 +67,9 @@ export default function App() {
 
           {/* Auth */}
           <Route path="/login" element={<LoginPage />} />
+
+          {/* Owner only */}
+          <Route path="/admin/owner" element={<RequireOwner><OwnerPage /></RequireOwner>} />
 
           {/* Admin */}
           <Route path="/admin" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
