@@ -13,7 +13,7 @@ const ACC = '#c62828';
 export default function BoardGameScoreEntryPage() {
   const { eventId } = useParams();
   const { profile } = useAuth();
-  const isRunner = profile?.role === 'event_runner';
+  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
 
   const [event, setEvent] = useState(null);
   const [config, setConfig] = useState({});
@@ -123,10 +123,6 @@ export default function BoardGameScoreEntryPage() {
     return Object.values(tally);
   }
 
-  function getSquare(num) {
-    return squares.find(sq => sq.square_number === num);
-  }
-
   function resolveSquare(position, squareList) {
     let pos = position;
     const visited = new Set();
@@ -148,7 +144,7 @@ export default function BoardGameScoreEntryPage() {
   }
 
   async function handleCommit() {
-    if (!isRunner) return;
+    if (!canManage) return;
     if (!confirm(`Commit Day ${dayNumber}?`)) return;
     setCommitting(true);
     setMsg('');
@@ -236,7 +232,6 @@ export default function BoardGameScoreEntryPage() {
       for (const [pid, pos] of Object.entries(newPositions)) {
         const sq = liveSquares.find(s => s.square_number === pos && s.type === 'prize');
         if (sq) {
-          // Check if already earned (avoid duplicate)
           const { data: existing } = await supabase
             .from('board_prizes_earned')
             .select('id')
@@ -305,7 +300,7 @@ export default function BoardGameScoreEntryPage() {
   }
 
   async function handleUndo() {
-    if (!isRunner) return;
+    if (!canManage) return;
     const prevDay = dayNumber - 1;
     if (prevDay < 1) { setMsg('Nothing to undo.'); return; }
     if (!confirm(`Undo Day ${prevDay}?`)) return;
@@ -330,8 +325,7 @@ export default function BoardGameScoreEntryPage() {
         .upsert(restores, { onConflict: 'event_id,player_id' });
     }
 
-    // Delete prizes earned on this day (approximation: delete prizes for positions that were moved to)
-    // and un-commit entries
+    // Un-commit entries
     await supabase.from('board_score_entries')
       .update({ committed: false })
       .eq('event_id', eventId).eq('day_number', prevDay).eq('committed', true);
@@ -354,7 +348,7 @@ export default function BoardGameScoreEntryPage() {
           <h1 style={s.title}>{event?.name}</h1>
           <span style={s.dayBadge}>Day {dayNumber}</span>
         </div>
-        {isRunner && (
+        {canManage && (
           <div style={s.headerActions}>
             <button onClick={handleCommit} disabled={committing || entries.length === 0} style={s.commitBtn}>
               {committing ? 'Committing...' : `Commit Day ${dayNumber}`}

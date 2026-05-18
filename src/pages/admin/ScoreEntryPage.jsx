@@ -11,7 +11,7 @@ import { fireAllPlayWebhooks } from '../../lib/discord';
 export default function ScoreEntryPage() {
   const { id: eventId } = useParams();
   const { profile } = useAuth();
-  const isRunner = profile?.role === 'event_runner';
+  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
 
   const [event, setEvent] = useState(null);
   const [divisions, setDivisions] = useState([]);
@@ -30,7 +30,6 @@ export default function ScoreEntryPage() {
   // Playoff tab
   const [activeTab, setActiveTab] = useState('regular'); // 'regular' | 'playoffs'
   const [bracketMatches, setBracketMatches] = useState([]);
-  const [playoffEntry, setPlayoffEntry] = useState(null);
 
   const realtimeRef = useRef(null);
   const dayRef = useRef(1);
@@ -85,7 +84,6 @@ export default function ScoreEntryPage() {
         .on('postgres_changes', {
           event: '*', schema: 'public', table: 'score_entries',
         }, (payload) => {
-          // Filter client-side — column filters require replica identity which may not be set
           const row = payload.new || payload.old;
           if (row?.event_id === eventId) {
             loadEntries(dayRef.current);
@@ -113,7 +111,6 @@ export default function ScoreEntryPage() {
       setMsg('Select a team and category first.');
       return;
     }
-    const cat = categories.find(c => c.id === selectedCategory);
     const { error } = await supabase.from('score_entries').insert({
       event_id: eventId,
       team_id: selectedTeam,
@@ -123,7 +120,6 @@ export default function ScoreEntryPage() {
     });
     if (error) { setMsg('Error adding entry: ' + error.message); return; }
     setMsg('');
-    // Don't reset dropdowns — fast multi-entry UX
   }
 
   async function removeEntry(entryId) {
@@ -146,7 +142,7 @@ export default function ScoreEntryPage() {
   }
 
   async function commitDay() {
-    if (!isRunner) return;
+    if (!canManage) return;
     setCommitting(true);
     setMsg('');
     try {
@@ -170,28 +166,6 @@ export default function ScoreEntryPage() {
         teamScores[e.team_id] = (teamScores[e.team_id] || 0) + (e.categories?.multiplier || 0) * e.encounter_count;
       }
 
-      // Fetch existing standings for League Average calc
-      const { data: allEntries } = await supabase
-        .from('score_entries')
-        .select('team_id, encounter_count, categories(multiplier)')
-        .eq('event_id', eventId)
-        .not('finalized_at', 'is', null);
-
-      // Calculate league average for the day (all teams that submitted)
-      const teamsWithScores = Object.keys(teamScores);
-      const leagueAvg = teamsWithScores.length > 0
-        ? Object.values(teamScores).reduce((s, v) => s + v, 0) / teamsWithScores.length
-        : 0;
-
-      // For each team: head-to-head + vs league avg, award pts
-      const standings = {};
-      for (const team of allTeams) {
-        const score = teamScores[team.id] || 0;
-        // head-to-head: compare vs their division opponent for the day
-        // simplified: we store raw scores and let standings page calculate
-        standings[team.id] = { score, leagueAvg };
-      }
-
       // Finalize entries
       const ids = fresh.map(e => e.id);
       await supabase
@@ -204,7 +178,7 @@ export default function ScoreEntryPage() {
         teamName: t.name,
         webhookUrl: t.discord_webhook_url,
         todayScore: teamScores[t.id] || 0,
-        wins: 0, losses: 0, ties: 0, points: 0, rank: i + 1, // standings calc is async
+        wins: 0, losses: 0, ties: 0, points: 0, rank: i + 1,
       }));
 
       const overallWebhook = event?.discord_overall_webhook;
@@ -233,7 +207,7 @@ export default function ScoreEntryPage() {
   }
 
   async function undoDay() {
-    if (!isRunner) return;
+    if (!canManage) return;
     const prevDay = dayNumber - 1;
     if (prevDay < 1) { setMsg('Nothing to undo.'); return; }
     if (!confirm(`Undo Day ${prevDay}? This will restore those entries as uncommitted.`)) return;
@@ -263,7 +237,7 @@ export default function ScoreEntryPage() {
           <h1 style={styles.title}>{event?.name}</h1>
           <div style={styles.dayBadge}>Day {dayNumber}</div>
         </div>
-        {isRunner && (
+        {canManage && (
           <div style={styles.headerActions}>
             <button onClick={commitDay} disabled={committing || entries.length === 0} style={styles.commitBtn}>
               {committing ? 'Committing...' : `Commit Day ${dayNumber}`}
@@ -361,7 +335,7 @@ export default function ScoreEntryPage() {
 
 function PlayoffEntry({ eventId, matches, teams, categories, onMatchSaved }) {
   const [activeMatch, setActiveMatch] = useState(null);
-  const [entries, setEntries] = useState({ team1: [], team2: [] }); // {catId, pts}[]
+  const [entries, setEntries] = useState({ team1: [], team2: [] });
   const [selectedCat, setSelectedCat] = useState({ team1: '', team2: '' });
   const [saving, setSaving] = useState(false);
 
@@ -398,7 +372,7 @@ function PlayoffEntry({ eventId, matches, teams, categories, onMatchSaved }) {
         ? activeMatch.team1_id
         : score2 > score1
           ? activeMatch.team2_id
-          : null; // tie goes to... team1 for simplicity
+          : null;
 
       await supabase.from('bracket_matches').update({
         team1_score: score1,
@@ -544,5 +518,4 @@ const styles = {
   vsTeamName: { fontWeight: 700, color: '#fff', marginBottom: 4 },
   vsScore: { color: '#c62828', fontSize: 20, fontWeight: 700, marginBottom: 12 },
   playoffActions: { display: 'flex', gap: 8, justifyContent: 'flex-end' },
-  matchCard_color: '#fff',
 };

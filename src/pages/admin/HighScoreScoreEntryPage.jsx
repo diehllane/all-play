@@ -16,7 +16,7 @@ const ACC = '#c62828';
 export default function HighScoreScoreEntryPage() {
   const { id: eventId } = useParams();
   const { profile } = useAuth();
-  const isRunner = profile?.role === 'event_runner';
+  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
 
   const [event, setEvent] = useState(null);
   const [config, setConfig] = useState(null);
@@ -121,7 +121,7 @@ export default function HighScoreScoreEntryPage() {
   }
 
   async function handleCommit() {
-    if (!isRunner) return;
+    if (!canManage) return;
     if (!confirm(`Commit Day ${dayNumber} for all players?`)) return;
     setCommitting(true);
     setMsg('');
@@ -184,7 +184,7 @@ export default function HighScoreScoreEntryPage() {
   }
 
   async function handleUndo() {
-    if (!isRunner) return;
+    if (!canManage) return;
     const prevDay = dayNumber - 1;
     if (prevDay < 1) { setMsg('Nothing to undo.'); return; }
     if (!confirm(`Undo Day ${prevDay}? Scores will be restored as uncommitted.`)) return;
@@ -199,7 +199,6 @@ export default function HighScoreScoreEntryPage() {
   if (loading) return <div style={s.loading}>Loading...</div>;
 
   const tally = buildTally();
-  // Group players by team for display if team mode
   const isTeamMode = config?.mode === 'team';
 
   return (
@@ -210,7 +209,7 @@ export default function HighScoreScoreEntryPage() {
           <h1 style={s.title}>{event?.name}</h1>
           <span style={s.dayBadge}>Day {dayNumber}</span>
         </div>
-        {isRunner && (
+        {canManage && (
           <div style={s.headerActions}>
             <button
               onClick={handleCommit}
