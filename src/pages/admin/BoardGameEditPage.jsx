@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import BoardBuilder from '../../components/BoardBuilder';
+import { logAudit } from '../../lib/audit';
 
 const DEFAULT_CONFIG = {
   track_length: 252,
@@ -93,6 +94,12 @@ export default function BoardGameEditPage() {
         if (insErr) throw insErr;
       }
       setMessage({ type: 'success', text: 'Board tiles saved.' });
+      await logAudit({
+        actor: profile, eventType: 'config_change',
+        action: `Saved board tiles for "${event?.name}" (${squares.length} squares)`,
+        eventId, eventName: event?.name,
+        metadata: { square_count: squares.length },
+      });
     } catch (e) {
       setMessage({ type: 'error', text: e.message });
     } finally {
@@ -131,6 +138,12 @@ export default function BoardGameEditPage() {
       if (evErr) throw evErr;
 
       setMessage({ type: 'success', text: 'Configuration saved.' });
+      await logAudit({
+        actor: profile, eventType: 'config_change',
+        action: `Saved configuration for "${event?.name}"`,
+        eventId, eventName: event?.name,
+        metadata: { score_divisor: config.score_divisor, track_length: config.track_length, theme_color: config.theme_color },
+      });
     } catch (e) {
       setMessage({ type: 'error', text: e.message });
     } finally {
