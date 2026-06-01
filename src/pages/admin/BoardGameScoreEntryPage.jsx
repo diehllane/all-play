@@ -7,6 +7,7 @@ import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { fireBoardGameWebhooks } from '../../lib/discord';
+import { logAudit } from '../../lib/audit';
 
 const ACC = '#c62828';
 
@@ -104,12 +105,28 @@ export default function BoardGameScoreEntryPage() {
       committed: false,
     });
     if (error) setMsg(error.message);
-    else setMsg('');
+    else {
+      setMsg('');
+      const player = players.find(p => p.id === selectedPlayer);
+      await logAudit({
+        actor: profile, eventType: 'score_entry',
+        action: `Added ${cat?.name ?? 'entry'} for ${player?.name ?? 'player'}`,
+        eventId, eventName: event?.name, targetId: selectedPlayer, targetName: player?.name,
+        metadata: { category: cat?.name, points_each: cat?.multiplier },
+      });
+    }
   }
 
   async function handleRemove(id) {
+    const entry = entries.find(e => e.id === id);
     await supabase.from('board_score_entries').delete().eq('id', id);
     await loadEntries(dayNumber);
+    await logAudit({
+      actor: profile, eventType: 'score_entry',
+      action: `Removed entry for ${entry?.board_players?.name ?? 'player'}`,
+      eventId, eventName: event?.name, targetId: entry?.player_id, targetName: entry?.board_players?.name,
+      metadata: { removed: true },
+    });
   }
 
   function buildTally() {
@@ -290,6 +307,12 @@ export default function BoardGameScoreEntryPage() {
       }
 
       setMsg(`Day ${dayNumber} committed!`);
+      await logAudit({
+        actor: profile, eventType: 'commit',
+        action: `Committed Day ${dayNumber} for "${event?.name}"`,
+        eventId, eventName: event?.name,
+        metadata: { day: dayNumber, player_count: players.length },
+      });
       setDayNumber(d => d + 1);
       setEntries([]);
     } catch (e) {
@@ -334,6 +357,12 @@ export default function BoardGameScoreEntryPage() {
 
     setDayNumber(prevDay);
     await loadEntries(prevDay);
+    await logAudit({
+      actor: profile, eventType: 'undo',
+      action: `Undid Day ${prevDay} for "${event?.name}"`,
+      eventId, eventName: event?.name,
+      metadata: { reverted_day: prevDay },
+    });
     setMsg(`Day ${prevDay} reverted.`);
   }
 
