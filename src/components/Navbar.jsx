@@ -4,8 +4,10 @@ import { useAuth } from '../contexts/AuthContext'
 export default function Navbar({ eventSlug, eventName }) {
   const { user, profile, signOut } = useAuth()
   const location = useLocation()
-  const isAdmin = location.pathname.startsWith('/admin')
-  const isOwner = profile?.role === 'owner'
+  const isAdmin  = location.pathname.startsWith('/admin')
+  const isOwner  = profile?.role === 'owner'
+  const isRunner = profile?.role === 'event_runner' || isOwner
+  const isPlayer = profile?.role === 'player'
 
   return (
     <nav className="navbar">
@@ -18,43 +20,75 @@ export default function Navbar({ eventSlug, eventName }) {
         <ul className="navbar-links">
           {eventSlug && (
             <>
-              <li><Link to={`/event/${eventSlug}/standings`}
-                className={location.pathname.includes('/standings') ? 'active' : ''}>
-                Standings
-              </Link></li>
-              <li><Link to={`/event/${eventSlug}/schedule`}
-                className={location.pathname.includes('/schedule') ? 'active' : ''}>
-                Schedule
-              </Link></li>
-              <li><Link to={`/event/${eventSlug}/bracket`}
-                className={location.pathname.includes('/bracket') ? 'active' : ''}>
-                Bracket
-              </Link></li>
+              <li>
+                <Link to={`/event/${eventSlug}/standings`} className={location.pathname.includes('/standings') ? 'active' : ''}>
+                  Standings
+                </Link>
+              </li>
+              <li>
+                <Link to={`/event/${eventSlug}/schedule`} className={location.pathname.includes('/schedule') ? 'active' : ''}>
+                  Schedule
+                </Link>
+              </li>
+              <li>
+                <Link to={`/event/${eventSlug}/bracket`} className={location.pathname.includes('/bracket') ? 'active' : ''}>
+                  Bracket
+                </Link>
+              </li>
             </>
           )}
 
           {user ? (
             <>
-              <li><Link to="/admin" className={isAdmin && !location.pathname.startsWith('/admin/owner') ? 'active' : ''}>Dashboard</Link></li>
-              {isOwner && (
-                <li><Link to="/admin/owner" className={location.pathname.startsWith('/admin/owner') ? 'active' : ''}>Owner Panel</Link></li>
+              {isPlayer && (
+                <li>
+                  <Link to="/player" className={location.pathname === '/player' ? 'active' : ''}>
+                    My Dashboard
+                  </Link>
+                </li>
               )}
-              <li><Link to="/admin/change-password" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Change Password</Link></li>
+
+              {!isPlayer && (
+                <li>
+                  <Link
+                    to="/admin"
+                    className={isAdmin && !location.pathname.startsWith('/admin/owner') && !location.pathname.startsWith('/admin/audit') ? 'active' : ''}
+                  >
+                    Dashboard
+                  </Link>
+                </li>
+              )}
+
+              {isRunner && (
+                <li>
+                  <Link to="/admin/audit" className={location.pathname.startsWith('/admin/audit') ? 'active' : ''}>
+                    Audit Log
+                  </Link>
+                </li>
+              )}
+
+              {isOwner && (
+                <li>
+                  <Link to="/admin/owner" className={location.pathname.startsWith('/admin/owner') ? 'active' : ''}>
+                    Owner Panel
+                  </Link>
+                </li>
+              )}
+
               <li>
-                <button
-                  onClick={signOut}
-                  className="btn btn-secondary btn-sm"
-                  style={{ cursor: 'pointer' }}
-                >
+                <Link to="/admin/change-password" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Change Password
+                </Link>
+              </li>
+              <li>
+                <button onClick={signOut} className="btn btn-secondary btn-sm" style={{ cursor: 'pointer' }}>
                   Sign Out
                 </button>
               </li>
             </>
           ) : (
             <li>
-              <Link to="/login" className="btn btn-secondary btn-sm">
-                Sign In
-              </Link>
+              <Link to="/login" className="btn btn-secondary btn-sm">Sign In</Link>
             </li>
           )}
         </ul>
