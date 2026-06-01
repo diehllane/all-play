@@ -10,6 +10,7 @@ import {
   getHSLastCommittedDay, getHSDailyTotals, buildHSStandings,
 } from '../../lib/highscore';
 import { fireHighScoreWebhooks } from '../../lib/discord';
+import { logAudit } from '../../lib/audit';
 
 const ACC = '#c62828';
 
@@ -98,12 +99,25 @@ export default function HighScoreScoreEntryPage() {
         dayNumber,
       });
       setMsg('');
+      await logAudit({
+        actor: profile, eventType: 'score_entry',
+        action: `Added ${cat?.name ?? 'entry'} for ${player?.name ?? 'player'}`,
+        eventId, eventName: event?.name, targetId: selectedPlayer, targetName: player?.name,
+        metadata: { category: cat?.name, points_each: cat?.multiplier },
+      });
     } catch (e) { setMsg(e.message); }
   }
 
   async function handleRemove(entryId) {
+    const entry = entries.find(e => e.id === entryId);
     await removeHSEntry(entryId);
     await loadEntries(dayNumber);
+    await logAudit({
+      actor: profile, eventType: 'score_entry',
+      action: `Removed entry for ${entry?.hs_players?.name ?? 'player'}`,
+      eventId, eventName: event?.name, targetId: entry?.player_id, targetName: entry?.hs_players?.name,
+      metadata: { removed: true },
+    });
   }
 
   // Build per-player tally
@@ -174,6 +188,12 @@ export default function HighScoreScoreEntryPage() {
       }
 
       setMsg(`Day ${dayNumber} committed successfully!`);
+      await logAudit({
+        actor: profile, eventType: 'commit',
+        action: `Committed Day ${dayNumber} for "${event?.name}"`,
+        eventId, eventName: event?.name,
+        metadata: { day: dayNumber },
+      });
       setDayNumber(d => d + 1);
       setEntries([]);
     } catch (e) {
@@ -192,6 +212,12 @@ export default function HighScoreScoreEntryPage() {
       await undoHSDay(eventId, prevDay);
       setDayNumber(prevDay);
       await loadEntries(prevDay);
+      await logAudit({
+        actor: profile, eventType: 'undo',
+        action: `Undid Day ${prevDay} for "${event?.name}"`,
+        eventId, eventName: event?.name,
+        metadata: { reverted_day: prevDay },
+      });
       setMsg(`Day ${prevDay} reverted. Fix entries and recommit.`);
     } catch (e) { setMsg(e.message); }
   }
