@@ -7,6 +7,7 @@ import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { fireAllPlayWebhooks } from '../../lib/discord';
+import { logAudit } from '../../lib/audit';
 
 export default function ScoreEntryPage() {
   const { id: eventId } = useParams();
@@ -120,10 +121,25 @@ export default function ScoreEntryPage() {
     });
     if (error) { setMsg('Error adding entry: ' + error.message); return; }
     setMsg('');
+    const cat = categories.find(c => c.id === selectedCategory);
+    const team = allTeams.find(t => t.id === selectedTeam);
+    await logAudit({
+      actor: profile, eventType: 'score_entry',
+      action: `Added ${cat?.name ?? 'entry'} for ${team?.name ?? 'team'}`,
+      eventId, eventName: event?.name, targetId: selectedTeam, targetName: team?.name,
+      metadata: { category: cat?.name, multiplier: cat?.multiplier },
+    });
   }
 
   async function removeEntry(entryId) {
+    const entry = entries.find(e => e.id === entryId);
     await supabase.from('score_entries').delete().eq('id', entryId);
+    await logAudit({
+      actor: profile, eventType: 'score_entry',
+      action: `Removed ${entry?.categories?.name ?? 'entry'} for ${entry?.teams?.name ?? 'team'}`,
+      eventId, eventName: event?.name, targetId: entry?.team_id, targetName: entry?.teams?.name,
+      metadata: { category: entry?.categories?.name, removed: true },
+    });
   }
 
   // Build per-team tally from entries
@@ -197,6 +213,12 @@ export default function ScoreEntryPage() {
       }
 
       setMsg(`Day ${dayNumber} committed.`);
+      await logAudit({
+        actor: profile, eventType: 'commit',
+        action: `Committed Day ${dayNumber} for "${event?.name}"`,
+        eventId, eventName: event?.name,
+        metadata: { day: dayNumber, team_count: Object.keys(teamScores).length },
+      });
       setDayNumber(d => { dayRef.current = d + 1; return d + 1; });
       setEntries([]);
     } catch (err) {
@@ -223,6 +245,12 @@ export default function ScoreEntryPage() {
     setDayNumber(prevDay);
     dayRef.current = prevDay;
     await loadEntries(prevDay);
+    await logAudit({
+      actor: profile, eventType: 'undo',
+      action: `Undid Day ${prevDay} for "${event?.name}"`,
+      eventId, eventName: event?.name,
+      metadata: { reverted_day: prevDay },
+    });
     setMsg(`Day ${prevDay} reverted. Fix scores and recommit.`);
   }
 
