@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { TEAM_COLORS, TEAM_COLOR_NAMES } from '../../lib/bingo';
+import { useAuth } from '../../contexts/AuthContext';
+import { logAudit } from '../../lib/audit';
 
 // ── Default 25 squares ────────────────────────────────────
 function defaultSquares(hasFreeSpace) {
@@ -350,8 +352,10 @@ function PlayersTab({ config, players, setPlayers, teams, setTeams, eventId, onS
 export default function BingoEditPage() {
   const { eventId } = useParams();
   const navigate = useNavigate();
+  const { profile } = useAuth();
   const [tab, setTab] = useState('board');
   const [config, setConfig] = useState(null);
+  const [eventName, setEventName] = useState('');
   const [squares, setSquares] = useState([]);
   const [players, setPlayers] = useState([]);
   const [teams, setTeams] = useState([]);
@@ -368,16 +372,19 @@ export default function BingoEditPage() {
         { data: sqs },
         { data: pls },
         { data: tms },
+        { data: ev },
       ] = await Promise.all([
         supabase.from('bingo_config').select('*').eq('event_id', eventId).single(),
         supabase.from('bingo_squares').select('*').eq('event_id', eventId).order('position'),
         supabase.from('bingo_players').select('*').eq('event_id', eventId).order('sort_order'),
         supabase.from('bingo_teams').select('*').eq('event_id', eventId).order('sort_order'),
+        supabase.from('events').select('name').eq('id', eventId).single(),
       ]);
       setConfig(cfg ?? {});
       setSquares(sqs?.length > 0 ? sqs : defaultSquares(cfg?.free_space_enabled ?? true));
       setPlayers(pls ?? []);
       setTeams(tms ?? []);
+      setEventName(ev?.name ?? '');
       setLoading(false);
     })();
   }, [eventId]);
@@ -388,6 +395,12 @@ export default function BingoEditPage() {
     setSaving(false);
     if (error) return flash(error.message, true);
     flash('Configuration saved.');
+    await logAudit({
+      actor: profile, eventType: 'config_change',
+      action: `Saved bingo configuration for "${eventName}"`,
+      eventId, eventName,
+      metadata: { free_space: config.free_space_enabled },
+    });
   };
 
   const saveSquares = async () => {
@@ -402,6 +415,12 @@ export default function BingoEditPage() {
     const { data } = await supabase.from('bingo_squares').select('*').eq('event_id', eventId).order('position');
     setSquares(data ?? []);
     flash('Board saved.');
+    await logAudit({
+      actor: profile, eventType: 'config_change',
+      action: `Saved bingo board tiles for "${eventName}"`,
+      eventId, eventName,
+      metadata: { square_count: squares.length },
+    });
   };
 
   const savePlayersTeams = async () => {
