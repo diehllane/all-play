@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { sortStandings, generateWinnersBracket, generateLosersBracket } from '../../lib/scoring'
 import { buildScheduleRows } from '../../lib/schedule'
+import { logAudit } from '../../lib/audit'
 
 export default function EventDetailPage() {
   const { id } = useParams()
@@ -164,6 +165,12 @@ export default function EventDetailPage() {
       if (error) throw error
       await fetchAll()
       setMessage({ type: 'success', text: `Schedule generated — ${allRows.length} matchups.` })
+      await logAudit({
+        actor: profile, eventType: 'config_change',
+        action: `Generated schedule for "${event?.name}" (${allRows.length} matchups)`,
+        eventId: id, eventName: event?.name,
+        metadata: { matchup_count: allRows.length, division_count: divisions.length },
+      })
     } catch (err) { setMessage({ type: 'error', text: err.message }) }
     setSaving(false)
   }
@@ -207,6 +214,12 @@ export default function EventDetailPage() {
         if (error) throw error
       }
       setMessage({ type: 'success', text: "Winner's and loser's brackets generated!" })
+      await logAudit({
+        actor: profile, eventType: 'config_change',
+        action: `Generated playoff bracket for "${event?.name}"`,
+        eventId: id, eventName: event?.name,
+        metadata: { match_count: allMatches.length, team_count: sorted.length },
+      })
     } catch (err) { setMessage({ type: 'error', text: err.message }) }
     setSaving(false)
   }
