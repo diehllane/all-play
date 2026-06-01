@@ -30,6 +30,8 @@ import BingoEventDetailPage from './pages/admin/BingoEventDetailPage';
 import BingoScoreEntryPage from './pages/admin/BingoScoreEntryPage';
 import BingoEditPage from './pages/admin/BingoEditPage';
 import OwnerPage from './pages/admin/OwnerPage';
+import AuditLogPage from './pages/admin/AuditLogPage';
+import PlayerPage from './pages/player/PlayerPage';
 
 const BASE = '/all-play';
 
@@ -47,6 +49,14 @@ function RequireOwner({ children }) {
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
   if (profile && profile.role !== 'owner') return <Navigate to="/admin" replace />;
+  return children;
+}
+
+// Allows any authenticated user (player and above)
+function RequirePlayer({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <Navigate to="/login" replace />;
   return children;
 }
 
@@ -68,8 +78,12 @@ export default function App() {
           {/* Auth */}
           <Route path="/login" element={<LoginPage />} />
 
+          {/* Player dashboard */}
+          <Route path="/player" element={<RequirePlayer><PlayerPage /></RequirePlayer>} />
+
           {/* Owner only */}
           <Route path="/admin/owner" element={<RequireOwner><OwnerPage /></RequireOwner>} />
+          <Route path="/admin/audit" element={<RequireOwner><AuditLogPage /></RequireOwner>} />
 
           {/* Admin */}
           <Route path="/admin" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
