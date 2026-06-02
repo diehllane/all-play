@@ -35,13 +35,31 @@ export function AuthProvider({ children }) {
       .select('*')
       .eq('id', userId)
       .single()
+    // Immediately sign out suspended accounts
+    if (data && data.is_active === false) {
+      await supabase.auth.signOut()
+      setUser(null)
+      setProfile(null)
+      setLoading(false)
+      return
+    }
     setProfile(data)
     setLoading(false)
   }
 
   async function signIn(email, password) {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
-    return { error }
+    if (error) return { error }
+    // Check suspension after sign-in
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      const { data: prof } = await supabase.from('profiles').select('is_active').eq('id', user.id).single()
+      if (prof?.is_active === false) {
+        await supabase.auth.signOut()
+        return { error: { message: 'This account has been suspended. Contact an admin.' } }
+      }
+    }
+    return { error: null }
   }
 
   async function signOut() {
