@@ -25,15 +25,42 @@ const TYPE_COLORS = {
 
 const PAGE_SIZE = 50
 
+// Convert array of objects to CSV string
+function toCSV(rows) {
+  if (!rows.length) return ''
+  const cols = ['created_at', 'event_type', 'actor_email', 'actor_role', 'event_name', 'action', 'target_name', 'metadata']
+  const escape = v => {
+    if (v == null) return ''
+    const s = typeof v === 'object' ? JSON.stringify(v) : String(v)
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  const header = cols.join(',')
+  const body = rows.map(r => cols.map(c => escape(r[c])).join(',')).join('\n')
+  return header + '\n' + body
+}
+
+function downloadCSV(content, filename) {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export default function AuditLogPage() {
   const { profile } = useAuth()
-  const canView = profile?.role === 'owner' || profile?.role === 'event_runner'
+  const canView    = profile?.role === 'owner' || profile?.role === 'event_runner'
+  const isOwner    = profile?.role === 'owner'
 
-  const [logs, setLogs]         = useState([])
-  const [total, setTotal]       = useState(0)
-  const [page, setPage]         = useState(0)
-  const [loading, setLoading]   = useState(true)
-  const [expanded, setExpanded] = useState(null)
+  const [logs, setLogs]           = useState([])
+  const [total, setTotal]         = useState(0)
+  const [page, setPage]           = useState(0)
+  const [loading, setLoading]     = useState(true)
+  const [expanded, setExpanded]   = useState(null)
+  const [clearing, setClearing]   = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   const [filterType, setFilterType]   = useState('')
   const [filterActor, setFilterActor] = useState('')
@@ -41,25 +68,28 @@ export default function AuditLogPage() {
   const [filterFrom, setFilterFrom]   = useState('')
   const [filterTo, setFilterTo]       = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const buildQuery = useCallback(() => {
     let q = supabase
       .from('audit_log')
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false })
-      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
 
     if (filterType)  q = q.eq('event_type', filterType)
     if (filterActor) q = q.ilike('actor_email', `%${filterActor}%`)
     if (filterEvent) q = q.ilike('event_name', `%${filterEvent}%`)
     if (filterFrom)  q = q.gte('created_at', filterFrom)
     if (filterTo)    q = q.lte('created_at', filterTo + 'T23:59:59Z')
+    return q
+  }, [filterType, filterActor, filterEvent, filterFrom, filterTo])
 
-    const { data, count } = await q
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data, count } = await buildQuery()
+      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1)
     setLogs(data ?? [])
     setTotal(count ?? 0)
     setLoading(false)
-  }, [page, filterType, filterActor, filterEvent, filterFrom, filterTo])
+  }, [page, buildQuery])
 
   useEffect(() => { if (canView) load() }, [load, canView])
 
@@ -67,6 +97,34 @@ export default function AuditLogPage() {
   const clearFilters = () => {
     setFilterType(''); setFilterActor(''); setFilterEvent('')
     setFilterFrom(''); setFilterTo(''); setPage(0)
+  }
+
+  // Export — fetches ALL rows matching current filters (no pagination limit)
+  async function handleExport() {
+    setExporting(true)
+    const { data } = await buildQuery().range(0, 99999)
+    if (data?.length) {
+      const csv = toCSV(data)
+      const date = new Date().toISOString().slice(0, 10)
+      downloadCSV(csv, `audit-log-${date}.csv`)
+    }
+    setExporting(false)
+  }
+
+  // Clear all — owner only
+  async function handleClear() {
+    if (!isOwner) return
+    if (!window.confirm(`Delete ALL ${total.toLocaleString()} audit log records? This cannot be undone. Export first if you need a backup.`)) return
+    setClearing(true)
+    const { error } = await supabase.rpc('clear_audit_log')
+    if (error) {
+      alert('Clear failed: ' + error.message)
+    } else {
+      setLogs([])
+      setTotal(0)
+      setPage(0)
+    }
+    setClearing(false)
   }
 
   if (!canView) return <div style={s.page}><p style={{ color: '#e57373' }}>Access denied.</p></div>
@@ -80,7 +138,31 @@ export default function AuditLogPage() {
           <Link to="/admin" style={s.back}>← Dashboard</Link>
           <h1 style={s.title}>Audit Log</h1>
         </div>
-        <span style={{ color: '#666', fontSize: 13 }}>{total.toLocaleString()} records</span>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ color: '#555', fontSize: 13 }}>{total.toLocaleString()} records</span>
+
+          {/* Export button — available to runners and owners */}
+          <button
+            onClick={handleExport}
+            disabled={exporting || total === 0}
+            style={s.exportBtn}
+            title="Export all matching records to CSV"
+          >
+            {exporting ? 'Exporting...' : '⬇ Export CSV'}
+          </button>
+
+          {/* Clear button — owner only */}
+          {isOwner && (
+            <button
+              onClick={handleClear}
+              disabled={clearing || total === 0}
+              style={s.clearAllBtn}
+              title="Permanently delete all audit log records"
+            >
+              {clearing ? 'Clearing...' : '🗑 Clear All'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filters */}
@@ -88,8 +170,10 @@ export default function AuditLogPage() {
         <select value={filterType} onChange={e => setFilterType(e.target.value)} style={s.ctrl}>
           {EVENT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
-        <input type="text" placeholder="Actor..." value={filterActor} onChange={e => setFilterActor(e.target.value)} style={s.ctrl} />
-        <input type="text" placeholder="Event name..." value={filterEvent} onChange={e => setFilterEvent(e.target.value)} style={s.ctrl} />
+        <input type="text" placeholder="Actor..." value={filterActor}
+          onChange={e => setFilterActor(e.target.value)} style={s.ctrl} />
+        <input type="text" placeholder="Event name..." value={filterEvent}
+          onChange={e => setFilterEvent(e.target.value)} style={s.ctrl} />
         <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} style={s.ctrl} title="From" />
         <input type="date" value={filterTo}   onChange={e => setFilterTo(e.target.value)}   style={s.ctrl} title="To" />
         <button type="submit" style={s.applyBtn}>Apply</button>
@@ -106,7 +190,7 @@ export default function AuditLogPage() {
             <table style={s.table}>
               <thead>
                 <tr>
-                  {['Time','Type','Actor','Event','Action',''].map(h => (
+                  {['Time', 'Type', 'Actor', 'Event', 'Action', ''].map(h => (
                     <th key={h} style={s.th}>{h}</th>
                   ))}
                 </tr>
@@ -168,7 +252,7 @@ export default function AuditLogPage() {
 
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'center', marginTop: 20 }}>
             <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} style={s.pgBtn}>← Prev</button>
-            <span style={{ color: '#888', fontSize: 13 }}>Page {page + 1} of {totalPages}</span>
+            <span style={{ color: '#888', fontSize: 13 }}>Page {page + 1} of {Math.max(1, totalPages)}</span>
             <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} style={s.pgBtn}>Next →</button>
           </div>
         </>
@@ -178,18 +262,20 @@ export default function AuditLogPage() {
 }
 
 const s = {
-  page:      { minHeight: '100vh', background: '#0d0d1a', color: '#eee', padding: '1.5rem', fontFamily: 'sans-serif' },
-  header:    { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '1.25rem' },
-  back:      { color: '#888', textDecoration: 'none', fontSize: 13, display: 'block', marginBottom: 4 },
-  title:     { margin: 0, fontSize: '1.5rem', color: '#fff' },
-  filterBar: { display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: '1.25rem', alignItems: 'center' },
-  ctrl:      { background: '#1e1e2e', border: '1px solid #333', color: '#eee', padding: '6px 10px', borderRadius: 5, fontSize: 13 },
-  applyBtn:  { background: '#c62828', border: 'none', color: '#fff', padding: '6px 14px', borderRadius: 5, cursor: 'pointer', fontSize: 13 },
-  clearBtn:  { background: 'transparent', border: '1px solid #444', color: '#888', padding: '6px 10px', borderRadius: 5, cursor: 'pointer', fontSize: 13 },
-  tableWrap: { overflowX: 'auto', borderRadius: 8, border: '1px solid #1e1e2e' },
-  table:     { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  th:        { background: '#111', color: '#666', padding: '8px 12px', textAlign: 'left', fontWeight: 600, borderBottom: '1px solid #1e1e2e', whiteSpace: 'nowrap' },
-  td:        { padding: '8px 12px', verticalAlign: 'top' },
-  badge:     { display: 'inline-block', padding: '2px 7px', borderRadius: 3, fontSize: 11, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' },
-  pgBtn:     { background: '#1e1e2e', border: '1px solid #333', color: '#ccc', padding: '5px 12px', borderRadius: 5, cursor: 'pointer' },
+  page:       { minHeight: '100vh', background: '#0d0d1a', color: '#eee', padding: '1.5rem', fontFamily: 'sans-serif' },
+  header:     { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '1.25rem', flexWrap: 'wrap', gap: 12 },
+  back:       { color: '#888', textDecoration: 'none', fontSize: 13, display: 'block', marginBottom: 4 },
+  title:      { margin: 0, fontSize: '1.5rem', color: '#fff' },
+  exportBtn:  { background: '#1a3a1a', border: '1px solid #2e7d32', color: '#81c784', padding: '6px 14px', borderRadius: 5, cursor: 'pointer', fontSize: 13, fontWeight: 600 },
+  clearAllBtn:{ background: '#2d0a0a', border: '1px solid #c62828', color: '#ef9a9a', padding: '6px 14px', borderRadius: 5, cursor: 'pointer', fontSize: 13, fontWeight: 600 },
+  filterBar:  { display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: '1.25rem', alignItems: 'center' },
+  ctrl:       { background: '#1e1e2e', border: '1px solid #333', color: '#eee', padding: '6px 10px', borderRadius: 5, fontSize: 13 },
+  applyBtn:   { background: '#c62828', border: 'none', color: '#fff', padding: '6px 14px', borderRadius: 5, cursor: 'pointer', fontSize: 13 },
+  clearBtn:   { background: 'transparent', border: '1px solid #444', color: '#888', padding: '6px 10px', borderRadius: 5, cursor: 'pointer', fontSize: 13 },
+  tableWrap:  { overflowX: 'auto', borderRadius: 8, border: '1px solid #1e1e2e' },
+  table:      { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
+  th:         { background: '#111', color: '#666', padding: '8px 12px', textAlign: 'left', fontWeight: 600, borderBottom: '1px solid #1e1e2e', whiteSpace: 'nowrap' },
+  td:         { padding: '8px 12px', verticalAlign: 'top' },
+  badge:      { display: 'inline-block', padding: '2px 7px', borderRadius: 3, fontSize: 11, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' },
+  pgBtn:      { background: '#1e1e2e', border: '1px solid #333', color: '#ccc', padding: '5px 12px', borderRadius: 5, cursor: 'pointer' },
 }
