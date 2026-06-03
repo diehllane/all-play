@@ -18,6 +18,7 @@ import LoginPage from './pages/admin/LoginPage';
 import AdminDashboard from './pages/admin/AdminDashboard';
 import CreateEventPage from './pages/admin/CreateEventPage';
 import EventDetailPage from './pages/admin/EventDetailPage';
+import AllPlayEditPage from './pages/admin/AllPlayEditPage';
 import ScoreEntryPage from './pages/admin/ScoreEntryPage';
 import ChangePasswordPage from './pages/admin/ChangePasswordPage';
 import ExportPage from './pages/admin/ExportPage';
@@ -94,6 +95,7 @@ export default function App() {
 
           {/* All-Play admin */}
           <Route path="/admin/events/:id" element={<RequireAuth><EventDetailPage /></RequireAuth>} />
+          <Route path="/admin/events/:id/edit" element={<RequireAuth><AllPlayEditPage /></RequireAuth>} />
           <Route path="/admin/events/:id/scores" element={<RequireAuth><ScoreEntryPage /></RequireAuth>} />
           <Route path="/admin/events/:id/export" element={<RequireAuth><ExportPage /></RequireAuth>} />
 
