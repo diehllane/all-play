@@ -25,6 +25,7 @@ export default function HomePage() {
   const allPlay = events.filter(e => e.event_type === 'all_play');
   const highScore = events.filter(e => e.event_type === 'high_score');
   const bingo = events.filter(e => ['bingo_solo', 'bingo_team'].includes(e.event_type));
+  const slots = events.filter(e => e.event_type === 'slots');
 
   return (
     <div style={s.page}>
@@ -90,6 +91,21 @@ export default function HomePage() {
               ))}
             </Section>
           )}
+
+          {slots.length > 0 && (
+            <Section title="🎰 Slots Events">
+              {slots.map(e => (
+                <EventCard
+                  key={e.id}
+                  event={e}
+                  viewPath={`/slots/${e.id}`}
+                  typeBadge="Slots"
+                  badgeColor="#00e5ff"
+                  badgeBg="#001a1a"
+                />
+              ))}
+            </Section>
+          )}
         </>
       )}
     </div>
@@ -105,15 +121,21 @@ function Section({ title, children }) {
   );
 }
 
-function EventCard({ event, viewPath, typeBadge }) {
+function EventCard({ event, viewPath, typeBadge, badgeColor, badgeBg }) {
   const formatDate = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
   const start = formatDate(event.start_date);
   const end = formatDate(event.end_date);
 
+  const badgeStyle = {
+    ...s.typeBadge,
+    ...(badgeColor ? { color: badgeColor } : {}),
+    ...(badgeBg ? { background: badgeBg } : {}),
+  };
+
   return (
     <div style={s.card}>
       <div style={s.cardBody}>
-        <div style={s.typeBadge}>{typeBadge}</div>
+        <div style={badgeStyle}>{typeBadge}</div>
         <div style={s.eventName}>{event.name}</div>
         {(start || end) && (
           <div style={s.dates}>{start && end ? `${start} – ${end}` : start || end}</div>
