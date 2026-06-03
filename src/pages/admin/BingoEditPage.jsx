@@ -1,9 +1,102 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { TEAM_COLORS, TEAM_COLOR_NAMES } from '../../lib/bingo';
+import { TEAM_COLORS } from '../../lib/bingo';
 import { useAuth } from '../../contexts/AuthContext';
 import { logAudit } from '../../lib/audit';
+
+// ── CSV helpers ───────────────────────────────────────────
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  if (lines.length < 2) return { headers: [], rows: [] };
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  const rows = lines.slice(1).map(line => {
+    const cols = [];
+    let cur = '', inQ = false;
+    for (const ch of line) {
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+      else { cur += ch; }
+    }
+    cols.push(cur.trim());
+    return Object.fromEntries(headers.map((h, i) => [h, cols[i] ?? '']));
+  });
+  return { headers, rows };
+}
+
+function downloadCSV(filename, headers, rows) {
+  const escape = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const csv = [headers.join(','), ...rows.map(r => headers.map(h => escape(r[h])).join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function CsvImporter({ onImport, sampleHeaders, sampleRow, label, themeColor }) {
+  const [preview, setPreview] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState(null);
+  const tc = themeColor || '#c62828';
+
+  const handleFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => { setPreview(parseCSV(ev.target.result)); setResult(null); };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleConfirm = async () => {
+    setImporting(true);
+    const res = await onImport(preview.rows);
+    setResult(res); setPreview(null); setImporting(false);
+  };
+
+  return (
+    <div style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <label style={{ background: 'none', border: '1px solid #444', color: '#aaa', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+        ↑ Import CSV
+        <input type="file" accept=".csv" onChange={handleFile} style={{ display: 'none' }} />
+      </label>
+      <button onClick={() => downloadCSV(`sample_${label}.csv`, sampleHeaders, [sampleRow])}
+        style={{ background: 'none', border: '1px solid #333', color: '#666', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>
+        ↓ Sample
+      </button>
+      {result && <span style={{ fontSize: 12, color: result.error ? '#ef4444' : '#4ade80' }}>{result.text}</span>}
+
+      {preview && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 10, padding: 24, maxWidth: 720, width: '90%', maxHeight: '80vh', overflow: 'auto' }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: '#fff', marginBottom: 12 }}>Preview — {preview.rows.length} rows</div>
+            <div style={{ overflowX: 'auto', marginBottom: 16 }}>
+              <table style={{ fontSize: 12, borderCollapse: 'collapse', width: '100%' }}>
+                <thead><tr>{preview.headers.map(h => <th key={h} style={{ padding: '6px 10px', textAlign: 'left', color: '#aaa', borderBottom: '1px solid #333' }}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {preview.rows.slice(0, 10).map((row, i) => (
+                    <tr key={i}>{preview.headers.map(h => <td key={h} style={{ padding: '5px 10px', color: '#ddd', borderBottom: '1px solid #222' }}>{row[h]}</td>)}</tr>
+                  ))}
+                </tbody>
+              </table>
+              {preview.rows.length > 10 && <div style={{ fontSize: 11, color: '#666', marginTop: 6 }}>...and {preview.rows.length - 10} more rows</div>}
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={handleConfirm} disabled={importing}
+                style={{ background: tc, border: 'none', color: '#fff', borderRadius: 6, padding: '8px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                {importing ? 'Importing...' : 'Confirm Import'}
+              </button>
+              <button onClick={() => setPreview(null)}
+                style={{ background: 'none', border: '1px solid #444', color: '#aaa', borderRadius: 6, padding: '8px 16px', fontSize: 13, cursor: 'pointer' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Default 25 squares ────────────────────────────────────
 function defaultSquares(hasFreeSpace) {
@@ -16,46 +109,54 @@ function defaultSquares(hasFreeSpace) {
   }));
 }
 
-// ── Drag-and-drop tile grid ────────────────────────────────
-function BoardBuilder({ squares, setSquares, config, onSaveSquares, saving }) {
+// ── Board Builder ─────────────────────────────────────────
+function BoardBuilder({ squares, setSquares, config, onSaveSquares, saving, onImport, onExport }) {
   const [dragging, setDragging] = useState(null);
   const [over, setOver] = useState(null);
   const [editingIdx, setEditingIdx] = useState(null);
   const themeColor = config.theme_color || '#c62828';
 
-  const handleDragStart = (pos) => setDragging(pos);
-  const handleDragOver = (e, pos) => { e.preventDefault(); setOver(pos); };
   const handleDrop = (pos) => {
     if (dragging === null || dragging === pos) { setDragging(null); setOver(null); return; }
     const newSqs = [...squares];
     const fromIdx = newSqs.findIndex(s => s.position === dragging);
     const toIdx = newSqs.findIndex(s => s.position === pos);
     if (fromIdx < 0 || toIdx < 0) { setDragging(null); setOver(null); return; }
-    // Swap positions
     const tmp = newSqs[fromIdx].position;
     newSqs[fromIdx] = { ...newSqs[fromIdx], position: newSqs[toIdx].position };
     newSqs[toIdx] = { ...newSqs[toIdx], position: tmp };
     newSqs.sort((a, b) => a.position - b.position);
     setSquares(newSqs);
-    setDragging(null);
-    setOver(null);
+    setDragging(null); setOver(null);
   };
 
-  const updateSquare = (position, field, value) => {
+  const updateSquare = (position, field, value) =>
     setSquares(prev => prev.map(s => s.position === position ? { ...s, [field]: value } : s));
-  };
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
-        <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>Drag tiles to rearrange. Click a tile to edit its details.</span>
-        <button onClick={onSaveSquares} disabled={saving}
-          style={{ marginLeft: 'auto', background: themeColor, color: 'var(--text)', border: 'none', borderRadius: 6, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-          {saving ? 'Saving...' : 'Save Board'}
-        </button>
+      <div style={{ marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>Drag tiles to rearrange. Click a tile to edit.</span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <CsvImporter
+            label="bingo_tiles"
+            themeColor={themeColor}
+            sampleHeaders={['position', 'label', 'point_value', 'description', 'is_free_space']}
+            sampleRow={{ position: 0, label: 'Catch a Shiny', point_value: 10, description: '', is_free_space: false }}
+            onImport={onImport}
+          />
+          <button onClick={onExport}
+            style={{ background: 'none', border: '1px solid #333', color: '#666', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>
+            ↓ Export CSV
+          </button>
+          <button onClick={onSaveSquares} disabled={saving}
+            style={{ background: themeColor, color: 'var(--text)', border: 'none', borderRadius: 6, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            {saving ? 'Saving...' : 'Save Board'}
+          </button>
+        </div>
       </div>
 
-      {/* Column headers with line values */}
+      {/* Column headers */}
       <div style={{ display: 'grid', gridTemplateColumns: '24px repeat(5, 1fr)', gap: 4, marginBottom: 4 }}>
         <div />
         {[0,1,2,3,4].map(c => (
@@ -77,25 +178,20 @@ function BoardBuilder({ squares, setSquares, config, onSaveSquares, saving }) {
             const sq = squares.find(s => s.position === pos);
             if (!sq) return <div key={col} />;
             const isEditing = editingIdx === pos;
-            const isDraggingThis = dragging === pos;
-            const isOver = over === pos;
             return (
               <div key={col}
                 draggable={!isEditing}
-                onDragStart={() => handleDragStart(pos)}
-                onDragOver={e => handleDragOver(e, pos)}
+                onDragStart={() => setDragging(pos)}
+                onDragOver={e => { e.preventDefault(); setOver(pos); }}
                 onDrop={() => handleDrop(pos)}
                 onClick={() => setEditingIdx(isEditing ? null : pos)}
                 style={{
-                  border: `2px solid ${isOver ? themeColor : isEditing ? themeColor : 'var(--border)'}`,
+                  border: `2px solid ${over === pos ? themeColor : isEditing ? themeColor : 'var(--border)'}`,
                   borderRadius: 6,
                   background: sq.is_free_space ? `${themeColor}33` : isEditing ? `${themeColor}18` : 'var(--surface-raised)',
-                  padding: 8,
-                  cursor: 'grab',
-                  opacity: isDraggingThis ? 0.4 : 1,
-                  minHeight: 80,
-                  transition: 'border-color 0.15s',
-                  position: 'relative',
+                  padding: 8, cursor: 'grab',
+                  opacity: dragging === pos ? 0.4 : 1,
+                  minHeight: 80, transition: 'border-color 0.15s', position: 'relative',
                 }}>
                 {sq.is_free_space && (
                   <div style={{ position: 'absolute', top: 4, right: 4, background: themeColor, color: 'var(--text)', fontSize: 9, fontWeight: 700, borderRadius: 3, padding: '1px 4px' }}>FREE</div>
@@ -114,13 +210,11 @@ function BoardBuilder({ squares, setSquares, config, onSaveSquares, saving }) {
                         style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 4, padding: '4px 8px', fontSize: 12, width: '100%' }} />
                     )}
                     <textarea value={sq.description ?? ''} onChange={e => updateSquare(pos, 'description', e.target.value)}
-                      placeholder="Description (optional)"
-                      rows={2}
+                      placeholder="Description (optional)" rows={2}
                       style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 4, padding: '4px 8px', fontSize: 11, width: '100%', resize: 'vertical' }} />
                     {config.free_space_enabled && (
                       <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--text-dim)', cursor: 'pointer' }}>
                         <input type="checkbox" checked={sq.is_free_space} onChange={e => {
-                          // Only one free space allowed
                           if (e.target.checked) {
                             setSquares(prev => prev.map(s => ({
                               ...s,
@@ -142,7 +236,6 @@ function BoardBuilder({ squares, setSquares, config, onSaveSquares, saving }) {
         </div>
       ))}
 
-      {/* Diagonal labels */}
       <div style={{ marginTop: 8, display: 'flex', gap: 20, fontSize: 12, color: 'var(--text-dim)' }}>
         {config.diag1_value > 0 && <span>↘ Diagonal: {config.diag1_value}pts</span>}
         {config.diag2_value > 0 && <span>↙ Diagonal: {config.diag2_value}pts</span>}
@@ -154,20 +247,11 @@ function BoardBuilder({ squares, setSquares, config, onSaveSquares, saving }) {
 // ── Config Tab ─────────────────────────────────────────────
 function ConfigTab({ config, setConfig, onSave, saving }) {
   const themeColor = config.theme_color || '#c62828';
-  const field = (key, label, type = 'text', extra = {}) => (
+  const field = (key, label, type = 'text') => (
     <div style={{ marginBottom: 16 }}>
       <label style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 4 }}>{label}</label>
       <input type={type} value={config[key] ?? ''} onChange={e => setConfig(p => ({ ...p, [key]: type === 'number' ? Number(e.target.value) : e.target.value }))}
-        {...extra}
         style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 6, padding: '8px 12px', fontSize: 14, width: '100%', maxWidth: 360 }} />
-    </div>
-  );
-  const boolField = (key, label) => (
-    <div style={{ marginBottom: 12 }}>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 14, color: '#fff' }}>
-        <input type="checkbox" checked={!!config[key]} onChange={e => setConfig(p => ({ ...p, [key]: e.target.checked }))} />
-        {label}
-      </label>
     </div>
   );
   const lineValueField = (key, label) => (
@@ -219,7 +303,12 @@ function ConfigTab({ config, setConfig, onSave, saving }) {
       </div>
 
       <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginTop: 24, marginBottom: 16, textTransform: 'uppercase', letterSpacing: 1 }}>Settings</h3>
-      {boolField('free_space_enabled', 'Free Space in Center (position 13)')}
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 14, color: '#fff' }}>
+          <input type="checkbox" checked={!!config.free_space_enabled} onChange={e => setConfig(p => ({ ...p, free_space_enabled: e.target.checked }))} />
+          Free Space in Center (position 13)
+        </label>
+      </div>
 
       <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginTop: 24, marginBottom: 16, textTransform: 'uppercase', letterSpacing: 1 }}>Discord</h3>
       {field('discord_webhook_url', 'Overall Discord Webhook URL')}
@@ -233,46 +322,46 @@ function ConfigTab({ config, setConfig, onSave, saving }) {
 }
 
 // ── Players/Teams Tab ─────────────────────────────────────
-function PlayersTab({ config, players, setPlayers, teams, setTeams, eventId, onSave, saving }) {
+function PlayersTab({ config, players, setPlayers, teams, setTeams, eventId, onSave, saving, onImportPlayers, onExportPlayers, onImportTeams, onExportTeams }) {
   const isTeam = config.event_type === 'team';
   const themeColor = config.theme_color || '#c62828';
 
   const addPlayer = () => setPlayers(prev => [...prev, {
-    id: `new-${Date.now()}`,
-    event_id: eventId,
-    name: '',
-    avatar_url: '',
-    color: TEAM_COLORS[prev.filter(p => p.team_id === (isTeam ? teams[0]?.id : null)).length % TEAM_COLORS.length],
-    team_id: null,
-    sort_order: prev.length,
-    _isNew: true,
+    id: `new-${Date.now()}`, event_id: eventId, name: '', avatar_url: '',
+    color: TEAM_COLORS[prev.length % TEAM_COLORS.length],
+    team_id: null, sort_order: prev.length, _isNew: true,
   }]);
 
   const addTeam = () => setTeams(prev => [...prev, {
-    id: `new-${Date.now()}`,
-    event_id: eventId,
-    name: '',
-    avatar_url: '',
-    discord_webhook_url: '',
-    color: TEAM_COLORS[prev.length % TEAM_COLORS.length],
-    sort_order: prev.length,
-    _isNew: true,
+    id: `new-${Date.now()}`, event_id: eventId, name: '', avatar_url: '',
+    discord_webhook_url: '', color: TEAM_COLORS[prev.length % TEAM_COLORS.length],
+    sort_order: prev.length, _isNew: true,
   }]);
 
   const updatePlayer = (id, field, value) => setPlayers(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
   const updateTeam = (id, field, value) => setTeams(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
   const removePlayer = (id) => setPlayers(prev => prev.filter(p => p.id !== id));
-  const removeTeam = (id) => { setTeams(prev => prev.filter(t => t.id !== id)); setPlayers(prev => prev.map(p => p.team_id === id ? { ...p, team_id: null } : p)); };
+  const removeTeam = (id) => {
+    setTeams(prev => prev.filter(t => t.id !== id));
+    setPlayers(prev => prev.map(p => p.team_id === id ? { ...p, team_id: null } : p));
+  };
 
   return (
     <div>
       {isTeam && (
         <div style={{ marginBottom: 32 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: 1 }}>Teams</h3>
             <button onClick={addTeam} style={{ background: 'none', border: `1px solid ${themeColor}`, color: themeColor, borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>+ Add Team</button>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+              <CsvImporter label="bingo_teams" themeColor={themeColor}
+                sampleHeaders={['team_name','avatar_url','color','discord_webhook']}
+                sampleRow={{ team_name: 'Team Rocket', avatar_url: '', color: '#ef4444', discord_webhook: '' }}
+                onImport={onImportTeams} />
+              <button onClick={onExportTeams} style={{ background: 'none', border: '1px solid #333', color: '#666', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>↓ Export CSV</button>
+            </div>
           </div>
-          {teams.map((t, ti) => (
+          {teams.map(t => (
             <div key={t.id} style={{ background: '#1a1a1a', border: '1px solid var(--border)', borderRadius: 8, padding: 14, marginBottom: 10, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
               <div>
                 <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 3 }}>Team Name</label>
@@ -282,11 +371,10 @@ function PlayersTab({ config, players, setPlayers, teams, setTeams, eventId, onS
               <div>
                 <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 3 }}>Avatar URL</label>
                 <input value={t.avatar_url ?? ''} onChange={e => updateTeam(t.id, 'avatar_url', e.target.value)}
-                  placeholder="https://..."
-                  style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 5, padding: '6px 10px', fontSize: 13, width: 200 }} />
+                  placeholder="https://..." style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 5, padding: '6px 10px', fontSize: 13, width: 200 }} />
               </div>
               <div>
-                <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 3 }}>Team Color</label>
+                <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 3 }}>Color</label>
                 <input type="color" value={t.color ?? '#ef4444'} onChange={e => updateTeam(t.id, 'color', e.target.value)}
                   style={{ width: 40, height: 32, border: 'none', background: 'none', cursor: 'pointer' }} />
               </div>
@@ -303,9 +391,16 @@ function PlayersTab({ config, players, setPlayers, teams, setTeams, eventId, onS
       )}
 
       <div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
           <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: 1 }}>Players</h3>
           <button onClick={addPlayer} style={{ background: 'none', border: `1px solid ${themeColor}`, color: themeColor, borderRadius: 6, padding: '5px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>+ Add Player</button>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <CsvImporter label="bingo_players" themeColor={themeColor}
+              sampleHeaders={['player_name','team_name','avatar_url','color']}
+              sampleRow={{ player_name: 'Ash', team_name: isTeam ? 'Team Rocket' : '', avatar_url: '', color: '#ef4444' }}
+              onImport={onImportPlayers} />
+            <button onClick={onExportPlayers} style={{ background: 'none', border: '1px solid #333', color: '#666', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>↓ Export CSV</button>
+          </div>
         </div>
         {players.map(p => (
           <div key={p.id} style={{ background: '#1a1a1a', border: '1px solid var(--border)', borderRadius: 8, padding: 14, marginBottom: 10, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -317,8 +412,7 @@ function PlayersTab({ config, players, setPlayers, teams, setTeams, eventId, onS
             <div>
               <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 3 }}>Avatar URL</label>
               <input value={p.avatar_url ?? ''} onChange={e => updatePlayer(p.id, 'avatar_url', e.target.value)}
-                placeholder="https://..."
-                style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 5, padding: '6px 10px', fontSize: 13, width: 180 }} />
+                placeholder="https://..." style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 5, padding: '6px 10px', fontSize: 13, width: 180 }} />
             </div>
             <div>
               <label style={{ fontSize: 11, color: 'var(--text-dim)', display: 'block', marginBottom: 3 }}>Color</label>
@@ -367,13 +461,7 @@ export default function BingoEditPage() {
 
   useEffect(() => {
     (async () => {
-      const [
-        { data: cfg },
-        { data: sqs },
-        { data: pls },
-        { data: tms },
-        { data: ev },
-      ] = await Promise.all([
+      const [{ data: cfg }, { data: sqs }, { data: pls }, { data: tms }, { data: ev }] = await Promise.all([
         supabase.from('bingo_config').select('*').eq('event_id', eventId).single(),
         supabase.from('bingo_squares').select('*').eq('event_id', eventId).order('position'),
         supabase.from('bingo_players').select('*').eq('event_id', eventId).order('sort_order'),
@@ -395,50 +483,35 @@ export default function BingoEditPage() {
     setSaving(false);
     if (error) return flash(error.message, true);
     flash('Configuration saved.');
-    await logAudit({
-      actor: profile, eventType: 'config_change',
-      action: `Saved bingo configuration for "${eventName}"`,
-      eventId, eventName,
-      metadata: { free_space: config.free_space_enabled },
-    });
+    await logAudit({ actor: profile, eventType: 'config_change', action: `Saved bingo config for "${eventName}"`, eventId, eventName });
   };
 
   const saveSquares = async () => {
     setSaving(true);
-    // Delete all, then re-insert
     await supabase.from('bingo_squares').delete().eq('event_id', eventId);
     const toInsert = squares.map(({ id, _isNew, ...s }) => ({ ...s, event_id: eventId }));
     const { error } = await supabase.from('bingo_squares').insert(toInsert);
     setSaving(false);
     if (error) return flash(error.message, true);
-    // Reload to get IDs
     const { data } = await supabase.from('bingo_squares').select('*').eq('event_id', eventId).order('position');
     setSquares(data ?? []);
     flash('Board saved.');
-    await logAudit({
-      actor: profile, eventType: 'config_change',
-      action: `Saved bingo board tiles for "${eventName}"`,
-      eventId, eventName,
-      metadata: { square_count: squares.length },
-    });
+    await logAudit({ actor: profile, eventType: 'config_change', action: `Saved bingo board for "${eventName}"`, eventId, eventName });
   };
 
   const savePlayersTeams = async () => {
     setSaving(true);
     try {
-      // Teams first
       for (const t of teams) {
         const { id, _isNew, ...fields } = t;
         if (_isNew) {
           const { data } = await supabase.from('bingo_teams').insert({ ...fields, event_id: eventId }).select().single();
-          // Update player team_id references
           setPlayers(prev => prev.map(p => p.team_id === id ? { ...p, team_id: data.id } : p));
           setTeams(prev => prev.map(t2 => t2.id === id ? { ...t2, id: data.id, _isNew: false } : t2));
         } else {
           await supabase.from('bingo_teams').update(fields).eq('id', id);
         }
       }
-      // Players
       for (const p of players) {
         const { id, _isNew, ...fields } = p;
         if (_isNew) {
@@ -447,19 +520,129 @@ export default function BingoEditPage() {
           await supabase.from('bingo_players').update(fields).eq('id', id);
         }
       }
-      // Re-fetch
       const [{ data: pls }, { data: tms }] = await Promise.all([
         supabase.from('bingo_players').select('*').eq('event_id', eventId).order('sort_order'),
         supabase.from('bingo_teams').select('*').eq('event_id', eventId).order('sort_order'),
       ]);
-      setPlayers(pls ?? []);
-      setTeams(tms ?? []);
+      setPlayers(pls ?? []); setTeams(tms ?? []);
       flash('Players and teams saved.');
-    } catch (e) {
-      flash(e.message, true);
-    } finally {
-      setSaving(false);
+    } catch (e) { flash(e.message, true); }
+    finally { setSaving(false); }
+  };
+
+  // ── Square CSV import/export ──────────────────────────────
+  const importSquares = async (rows) => {
+    let imported = 0, errors = [];
+    const parsed = rows.map(row => {
+      const pos = parseInt(row['position']);
+      if (isNaN(pos) || pos < 0 || pos > 24) { errors.push(`Invalid position: "${row['position']}"`); return null; }
+      return {
+        position: pos,
+        label: row['label']?.trim() || `Square ${pos + 1}`,
+        point_value: parseFloat(row['point_value']) || 1,
+        description: row['description']?.trim() || '',
+        is_free_space: row['is_free_space']?.toLowerCase() === 'true',
+      };
+    }).filter(Boolean);
+
+    setSquares(prev => {
+      const map = Object.fromEntries(prev.map(s => [s.position, s]));
+      for (const sq of parsed) { map[sq.position] = { ...map[sq.position], ...sq }; imported++; }
+      return Object.values(map).sort((a, b) => a.position - b.position);
+    });
+
+    if (errors.length) return { error: true, text: `${imported} merged, ${errors.length} skipped: ${errors[0]}` };
+    return { text: `${imported} squares merged. Click Save Board to commit.` };
+  };
+
+  const exportSquares = () => {
+    downloadCSV(
+      `bingo_squares_${eventId}.csv`,
+      ['position', 'label', 'point_value', 'description', 'is_free_space'],
+      squares.map(s => ({ position: s.position, label: s.label, point_value: s.point_value, description: s.description ?? '', is_free_space: s.is_free_space }))
+    );
+  };
+
+  // ── Players/Teams CSV import/export ───────────────────────
+  const importPlayers = async (rows) => {
+    let imported = 0, errors = [];
+    for (const row of rows) {
+      const name = row['player_name']?.trim();
+      if (!name) { errors.push('Row missing player_name'); continue; }
+      const teamName = row['team_name']?.trim();
+      const team = teamName ? teams.find(t => t.name.toLowerCase() === teamName.toLowerCase()) : null;
+      const existing = players.find(p => p.name.toLowerCase() === name.toLowerCase());
+      if (existing) {
+        await supabase.from('bingo_players').update({
+          avatar_url: row['avatar_url']?.trim() || existing.avatar_url,
+          color: row['color']?.trim() || existing.color,
+          team_id: team?.id ?? existing.team_id,
+        }).eq('id', existing.id);
+      } else {
+        await supabase.from('bingo_players').insert({
+          event_id: eventId, name,
+          avatar_url: row['avatar_url']?.trim() || null,
+          color: row['color']?.trim() || TEAM_COLORS[imported % TEAM_COLORS.length],
+          team_id: team?.id ?? null,
+          sort_order: players.length + imported,
+        });
+      }
+      imported++;
     }
+    const { data } = await supabase.from('bingo_players').select('*').eq('event_id', eventId).order('sort_order');
+    setPlayers(data ?? []);
+    if (errors.length) return { error: true, text: `${imported} imported, ${errors.length} errors: ${errors[0]}` };
+    return { text: `${imported} players imported.` };
+  };
+
+  const exportPlayers = () => {
+    downloadCSV(
+      `bingo_players_${eventId}.csv`,
+      ['player_name', 'team_name', 'avatar_url', 'color'],
+      players.map(p => ({
+        player_name: p.name,
+        team_name: teams.find(t => t.id === p.team_id)?.name ?? '',
+        avatar_url: p.avatar_url ?? '',
+        color: p.color ?? '',
+      }))
+    );
+  };
+
+  const importTeams = async (rows) => {
+    let imported = 0, errors = [];
+    for (const row of rows) {
+      const name = row['team_name']?.trim();
+      if (!name) { errors.push('Row missing team_name'); continue; }
+      const existing = teams.find(t => t.name.toLowerCase() === name.toLowerCase());
+      if (existing) {
+        await supabase.from('bingo_teams').update({
+          avatar_url: row['avatar_url']?.trim() || existing.avatar_url,
+          color: row['color']?.trim() || existing.color,
+          discord_webhook_url: row['discord_webhook']?.trim() || existing.discord_webhook_url,
+        }).eq('id', existing.id);
+      } else {
+        await supabase.from('bingo_teams').insert({
+          event_id: eventId, name,
+          avatar_url: row['avatar_url']?.trim() || null,
+          color: row['color']?.trim() || TEAM_COLORS[imported % TEAM_COLORS.length],
+          discord_webhook_url: row['discord_webhook']?.trim() || null,
+          sort_order: teams.length + imported,
+        });
+      }
+      imported++;
+    }
+    const { data } = await supabase.from('bingo_teams').select('*').eq('event_id', eventId).order('sort_order');
+    setTeams(data ?? []);
+    if (errors.length) return { error: true, text: `${imported} imported, ${errors.length} errors: ${errors[0]}` };
+    return { text: `${imported} teams imported.` };
+  };
+
+  const exportTeams = () => {
+    downloadCSV(
+      `bingo_teams_${eventId}.csv`,
+      ['team_name', 'avatar_url', 'color', 'discord_webhook'],
+      teams.map(t => ({ team_name: t.name, avatar_url: t.avatar_url ?? '', color: t.color ?? '', discord_webhook: t.discord_webhook_url ?? '' }))
+    );
   };
 
   if (loading) return <div style={{ padding: 40, color: 'var(--text-dim)' }}>Loading...</div>;
@@ -472,7 +655,10 @@ export default function BingoEditPage() {
     <div style={{ minHeight: '100vh', background: 'var(--bg)', padding: '32px 24px' }}>
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 24 }}>
-          <button onClick={() => navigate(`/admin/bingo/${eventId}`)} style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text-dim)', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}>← Back</button>
+          <button onClick={() => navigate(`/admin/bingo/${eventId}`)}
+            style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--text-dim)', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontSize: 13 }}>
+            ← Back
+          </button>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#fff' }}>Edit Bingo Event</h1>
         </div>
 
@@ -482,7 +668,6 @@ export default function BingoEditPage() {
           </div>
         )}
 
-        {/* Tabs */}
         <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid var(--border)', marginBottom: 24 }}>
           {tabs.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
@@ -494,11 +679,9 @@ export default function BingoEditPage() {
 
         {tab === 'board' && (
           <BoardBuilder
-            squares={squares}
-            setSquares={setSquares}
-            config={config}
-            onSaveSquares={saveSquares}
-            saving={saving}
+            squares={squares} setSquares={setSquares} config={config}
+            onSaveSquares={saveSquares} saving={saving}
+            onImport={importSquares} onExport={exportSquares}
           />
         )}
         {tab === 'config' && (
@@ -509,9 +692,9 @@ export default function BingoEditPage() {
             config={config}
             players={players} setPlayers={setPlayers}
             teams={teams} setTeams={setTeams}
-            eventId={eventId}
-            onSave={savePlayersTeams}
-            saving={saving}
+            eventId={eventId} onSave={savePlayersTeams} saving={saving}
+            onImportPlayers={importPlayers} onExportPlayers={exportPlayers}
+            onImportTeams={importTeams} onExportTeams={exportTeams}
           />
         )}
       </div>

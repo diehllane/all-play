@@ -21,24 +21,121 @@ const DEFAULT_CONFIG = {
   show_flavor_text: true,
 };
 
+// ── CSV helpers ───────────────────────────────────────────
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  if (lines.length < 2) return { headers: [], rows: [] };
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  const rows = lines.slice(1).map(line => {
+    const cols = [];
+    let cur = '', inQ = false;
+    for (const ch of line) {
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+      else { cur += ch; }
+    }
+    cols.push(cur.trim());
+    return Object.fromEntries(headers.map((h, i) => [h, cols[i] ?? '']));
+  });
+  return { headers, rows };
+}
+
+function downloadCSV(filename, headers, rows) {
+  const escape = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const csv = [headers.join(','), ...rows.map(r => headers.map(h => escape(r[h])).join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function CsvImporter({ onImport, sampleHeaders, sampleRow, label, themeColor }) {
+  const [preview, setPreview] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const handleFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => { setPreview(parseCSV(ev.target.result)); setResult(null); };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleConfirm = async () => {
+    setImporting(true);
+    const res = await onImport(preview.rows);
+    setResult(res);
+    setPreview(null);
+    setImporting(false);
+  };
+
+  const tc = themeColor || '#c62828';
+
+  return (
+    <div style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      <label style={{ background: 'none', border: '1px solid #444', color: '#aaa', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+        ↑ Import CSV
+        <input type="file" accept=".csv" onChange={handleFile} style={{ display: 'none' }} />
+      </label>
+      <button onClick={() => downloadCSV(`sample_${label}.csv`, sampleHeaders, [sampleRow])}
+        style={{ background: 'none', border: '1px solid #333', color: '#666', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>
+        ↓ Sample
+      </button>
+      {result && <span style={{ fontSize: 12, color: result.error ? '#ef4444' : '#4ade80' }}>{result.text}</span>}
+
+      {preview && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 10, padding: 24, maxWidth: 720, width: '90%', maxHeight: '80vh', overflow: 'auto' }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: '#fff', marginBottom: 12 }}>Preview — {preview.rows.length} rows</div>
+            <div style={{ overflowX: 'auto', marginBottom: 16 }}>
+              <table style={{ fontSize: 12, borderCollapse: 'collapse', width: '100%' }}>
+                <thead>
+                  <tr>{preview.headers.map(h => <th key={h} style={{ padding: '6px 10px', textAlign: 'left', color: '#aaa', borderBottom: '1px solid #333' }}>{h}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {preview.rows.slice(0, 10).map((row, i) => (
+                    <tr key={i}>{preview.headers.map(h => <td key={h} style={{ padding: '5px 10px', color: '#ddd', borderBottom: '1px solid #222' }}>{row[h]}</td>)}</tr>
+                  ))}
+                </tbody>
+              </table>
+              {preview.rows.length > 10 && <div style={{ fontSize: 11, color: '#666', marginTop: 6 }}>...and {preview.rows.length - 10} more rows</div>}
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={handleConfirm} disabled={importing}
+                style={{ background: tc, border: 'none', color: '#fff', borderRadius: 6, padding: '8px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                {importing ? 'Importing...' : 'Confirm Import'}
+              </button>
+              <button onClick={() => setPreview(null)}
+                style={{ background: 'none', border: '1px solid #444', color: '#aaa', borderRadius: 6, padding: '8px 16px', fontSize: 13, cursor: 'pointer' }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function BoardGameEditPage() {
   const { eventId } = useParams();
   const navigate = useNavigate();
   const { profile } = useAuth();
 
-  const [event, setEvent]       = useState(null);
-  const [config, setConfig]     = useState(null);
-  const [squares, setSquares]   = useState([]);
-  const [players, setPlayers]   = useState([]);
+  const [event, setEvent]           = useState(null);
+  const [config, setConfig]         = useState(null);
+  const [squares, setSquares]       = useState([]);
+  const [players, setPlayers]       = useState([]);
   const [categories, setCategories] = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [saving, setSaving]     = useState(false);
-  const [message, setMessage]   = useState(null);
-  const [activeTab, setActiveTab] = useState('board');
+  const [loading, setLoading]       = useState(true);
+  const [saving, setSaving]         = useState(false);
+  const [message, setMessage]       = useState(null);
+  const [activeTab, setActiveTab]   = useState('board');
 
-  // New category form
   const [newCatName, setNewCatName] = useState('');
-  const [newCatPts, setNewCatPts] = useState(1);
+  const [newCatPts, setNewCatPts]   = useState(1);
 
   const load = useCallback(async () => {
     const [evRes, cfgRes, sqRes, plRes, catRes] = await Promise.all([
@@ -56,12 +153,10 @@ export default function BoardGameEditPage() {
     if (cfgRes.data) {
       setConfig(cfgRes.data);
     } else {
-      // No config row yet — create one with defaults
       const { data: newCfg, error } = await supabase
         .from('board_game_config')
         .insert({ ...DEFAULT_CONFIG, event_id: eventId })
-        .select()
-        .single();
+        .select().single();
       if (!error) setConfig(newCfg);
       else setConfig({ ...DEFAULT_CONFIG, event_id: eventId });
     }
@@ -70,10 +165,9 @@ export default function BoardGameEditPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // ── Save board squares ────────────────────────────────────
+  // ── Board squares ─────────────────────────────────────────
   const handleSaveSquares = async () => {
-    setSaving(true);
-    setMessage(null);
+    setSaving(true); setMessage(null);
     try {
       const { error: delErr } = await supabase.from('board_squares').delete().eq('event_id', eventId);
       if (delErr) throw delErr;
@@ -107,34 +201,78 @@ export default function BoardGameEditPage() {
     }
   };
 
-  // ── Save config ───────────────────────────────────────────
+  // ── Board squares CSV import ──────────────────────────────
+  const importSquares = async (rows) => {
+    let imported = 0, errors = [];
+    const parsed = rows.map(row => {
+      const num = parseInt(row['square_number']);
+      if (isNaN(num)) { errors.push(`Invalid square_number: "${row['square_number']}"`); return null; }
+      return {
+        square_number: num,
+        type: row['type']?.trim() || 'flavor',
+        label: row['label']?.trim() || null,
+        icon: row['icon']?.trim() || null,
+        jump_to: row['jump_to'] ? parseInt(row['jump_to']) : null,
+        move_amount: row['move_amount'] ? parseInt(row['move_amount']) : null,
+        description: row['description']?.trim() || null,
+        badge: row['badge']?.trim() || null,
+        flavor_text: row['flavor_text']?.trim() || null,
+      };
+    }).filter(Boolean);
+
+    // Merge into existing squares by square_number, upsert
+    setSquares(prev => {
+      const map = Object.fromEntries(prev.map(s => [s.square_number, s]));
+      for (const sq of parsed) { map[sq.square_number] = { ...map[sq.square_number], ...sq }; imported++; }
+      return Object.values(map).sort((a, b) => a.square_number - b.square_number);
+    });
+
+    if (errors.length) return { error: true, text: `${imported} merged, ${errors.length} skipped: ${errors[0]}` };
+    return { text: `${imported} squares merged. Click Save Tiles to commit.` };
+  };
+
+  const exportSquares = () => {
+    const headers = ['square_number', 'type', 'label', 'icon', 'jump_to', 'move_amount', 'description', 'badge', 'flavor_text'];
+    const rows = squares.map(s => ({
+      square_number: s.square_number,
+      type: s.type,
+      label: s.label ?? '',
+      icon: s.icon ?? '',
+      jump_to: s.jump_to ?? '',
+      move_amount: s.move_amount ?? '',
+      description: s.description ?? '',
+      badge: s.badge ?? '',
+      flavor_text: s.flavor_text ?? '',
+    }));
+    downloadCSV(`board_squares_${event?.id ?? eventId}.csv`, headers, rows);
+  };
+
+  // ── Config ────────────────────────────────────────────────
   const handleSaveConfig = async () => {
-    setSaving(true);
-    setMessage(null);
+    setSaving(true); setMessage(null);
     try {
-      const { error } = await supabase
-        .from('board_game_config')
-        .update({
-          track_length: config.track_length,
-          grid_columns: config.grid_columns,
-          score_divisor: config.score_divisor,
-          score_operation: config.score_operation,
-          score_rounding: config.score_rounding,
-          min_moves_per_day: config.min_moves_per_day,
-          max_moves_per_day: config.max_moves_per_day,
-          theme_color: config.theme_color,
-          title_image_url: config.title_image_url || null,
-          badge_bonus_enabled: config.badge_bonus_enabled,
-          show_badge_sidebar: config.show_badge_sidebar,
-          show_flavor_text: config.show_flavor_text,
-        })
-        .eq('event_id', eventId);
+      const { error } = await supabase.from('board_game_config').update({
+        track_length: config.track_length,
+        grid_columns: config.grid_columns,
+        score_divisor: config.score_divisor,
+        score_operation: config.score_operation,
+        score_rounding: config.score_rounding,
+        min_moves_per_day: config.min_moves_per_day,
+        max_moves_per_day: config.max_moves_per_day,
+        theme_color: config.theme_color,
+        title_image_url: config.title_image_url || null,
+        badge_bonus_enabled: config.badge_bonus_enabled,
+        show_badge_sidebar: config.show_badge_sidebar,
+        show_flavor_text: config.show_flavor_text,
+      }).eq('event_id', eventId);
       if (error) throw error;
 
-      const { error: evErr } = await supabase
-        .from('events')
-        .update({ name: event.name, start_date: event.start_date || null, end_date: event.end_date || null, discord_overall_webhook: event.discord_overall_webhook || null })
-        .eq('id', eventId);
+      const { error: evErr } = await supabase.from('events').update({
+        name: event.name,
+        start_date: event.start_date || null,
+        end_date: event.end_date || null,
+        discord_overall_webhook: event.discord_overall_webhook || null,
+      }).eq('id', eventId);
       if (evErr) throw evErr;
 
       setMessage({ type: 'success', text: 'Configuration saved.' });
@@ -155,13 +293,10 @@ export default function BoardGameEditPage() {
   const handleAddCategory = async () => {
     if (!newCatName.trim()) return;
     const { error } = await supabase.from('categories').insert({
-      event_id: eventId,
-      name: newCatName.trim(),
-      multiplier: Number(newCatPts) || 1,
+      event_id: eventId, name: newCatName.trim(), multiplier: Number(newCatPts) || 1,
     });
     if (error) { setMessage({ type: 'error', text: error.message }); return; }
-    setNewCatName('');
-    setNewCatPts(1);
+    setNewCatName(''); setNewCatPts(1);
     await load();
   };
 
@@ -170,10 +305,36 @@ export default function BoardGameEditPage() {
     await load();
   };
 
+  const importCategories = async (rows) => {
+    let imported = 0, errors = [];
+    for (const row of rows) {
+      const name = row['name']?.trim();
+      if (!name) { errors.push('Row missing name'); continue; }
+      const pts = parseFloat(row['point_value']) || 1;
+      const existing = categories.find(c => c.name.toLowerCase() === name.toLowerCase());
+      if (existing) {
+        await supabase.from('categories').update({ multiplier: pts }).eq('id', existing.id);
+      } else {
+        await supabase.from('categories').insert({ event_id: eventId, name, multiplier: pts });
+      }
+      imported++;
+    }
+    await load();
+    if (errors.length) return { error: true, text: `${imported} imported, ${errors.length} errors: ${errors[0]}` };
+    return { text: `${imported} categories imported.` };
+  };
+
+  const exportCategories = () => {
+    downloadCSV(
+      `categories_${event?.id ?? eventId}.csv`,
+      ['name', 'point_value'],
+      categories.map(c => ({ name: c.name, point_value: c.multiplier }))
+    );
+  };
+
   // ── Players ───────────────────────────────────────────────
   const handleSavePlayer = async (player) => {
-    const { error } = await supabase
-      .from('board_players')
+    const { error } = await supabase.from('board_players')
       .update({ name: player.name, avatar_url: player.avatar_url || null })
       .eq('id', player.id);
     if (error) setMessage({ type: 'error', text: error.message });
@@ -194,6 +355,41 @@ export default function BoardGameEditPage() {
     if (!confirm(`Remove ${playerName}?`)) return;
     await supabase.from('board_players').delete().eq('id', playerId);
     await load();
+  };
+
+  const importPlayers = async (rows) => {
+    let imported = 0, errors = [];
+    for (const row of rows) {
+      const name = row['player_name']?.trim();
+      if (!name) { errors.push('Row missing player_name'); continue; }
+      const existing = players.find(p => p.name.toLowerCase() === name.toLowerCase());
+      if (existing) {
+        await supabase.from('board_players').update({
+          avatar_url: row['avatar_url']?.trim() || null,
+          color: row['color']?.trim() || existing.color,
+        }).eq('id', existing.id);
+      } else {
+        await supabase.from('board_players').insert({
+          event_id: eventId,
+          name,
+          avatar_url: row['avatar_url']?.trim() || null,
+          color: row['color']?.trim() || null,
+          sort_order: players.length + imported,
+        });
+      }
+      imported++;
+    }
+    await load();
+    if (errors.length) return { error: true, text: `${imported} imported, ${errors.length} errors: ${errors[0]}` };
+    return { text: `${imported} players imported.` };
+  };
+
+  const exportPlayers = () => {
+    downloadCSV(
+      `players_${event?.id ?? eventId}.csv`,
+      ['player_name', 'avatar_url', 'color'],
+      players.map(p => ({ player_name: p.name, avatar_url: p.avatar_url ?? '', color: p.color ?? '' }))
+    );
   };
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#aaa' }}>Loading...</div>;
@@ -243,9 +439,24 @@ export default function BoardGameEditPage() {
         {/* ── Board Tiles ── */}
         {activeTab === 'board' && (
           <div>
-            <p style={{ fontSize: 13, opacity: 0.6, marginBottom: 16 }}>
-              Click any tile to edit properties. Click an empty square to add a new tile.
-            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+              <p style={{ fontSize: 13, opacity: 0.6, margin: 0 }}>
+                Click any tile to edit. Click an empty square to add.
+              </p>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+                <CsvImporter
+                  label="board_tiles"
+                  themeColor={themeColor}
+                  sampleHeaders={['square_number','type','label','icon','jump_to','move_amount','description','badge','flavor_text']}
+                  sampleRow={{ square_number: 14, type: 'gym', label: 'Pewter City Gym', icon: '🏅', jump_to: '', move_amount: '', description: 'Earn the Boulder Badge', badge: 'Boulder Badge', flavor_text: '' }}
+                  onImport={importSquares}
+                />
+                <button onClick={exportSquares}
+                  style={{ background: 'none', border: '1px solid #333', color: '#666', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>
+                  ↓ Export CSV
+                </button>
+              </div>
+            </div>
             <BoardBuilder
               squares={squares}
               onChange={setSquares}
@@ -311,9 +522,24 @@ export default function BoardGameEditPage() {
         {/* ── Categories ── */}
         {activeTab === 'categories' && (
           <div>
-            <p style={{ fontSize: 13, opacity: 0.6, marginBottom: 16 }}>
-              Categories define what encounter types scorers can add and how many points each is worth.
-            </p>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+              <p style={{ fontSize: 13, opacity: 0.6, margin: 0 }}>
+                Categories define encounter types and point values for scorers.
+              </p>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <CsvImporter
+                  label="categories"
+                  themeColor={themeColor}
+                  sampleHeaders={['name', 'point_value']}
+                  sampleRow={{ name: 'Shiny Legend', point_value: 100 }}
+                  onImport={importCategories}
+                />
+                <button onClick={exportCategories}
+                  style={{ background: 'none', border: '1px solid #333', color: '#666', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>
+                  ↓ Export CSV
+                </button>
+              </div>
+            </div>
             {categories.map(c => (
               <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid #2a2a3e', fontSize: 13 }}>
                 <span style={{ flex: 1 }}>{c.name}</span>
@@ -325,20 +551,13 @@ export default function BoardGameEditPage() {
               </div>
             ))}
             <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-              <input
-                value={newCatName}
-                onChange={e => setNewCatName(e.target.value)}
+              <input value={newCatName} onChange={e => setNewCatName(e.target.value)}
                 placeholder="Category name (e.g. Shiny Legend)"
-                style={{ flex: 1, minWidth: 180, padding: '8px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }}
-              />
-              <input
-                type="number"
-                value={newCatPts}
-                onChange={e => setNewCatPts(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAddCategory()}
+                style={{ flex: 1, minWidth: 180, padding: '8px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }} />
+              <input type="number" value={newCatPts} onChange={e => setNewCatPts(e.target.value)}
                 style={{ width: 80, padding: '8px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }}
-                placeholder="Pts"
-                min="1"
-              />
+                placeholder="Pts" min="1" />
               <button onClick={handleAddCategory}
                 style={{ padding: '8px 18px', background: themeColor, border: 'none', color: '#fff', borderRadius: 6, cursor: 'pointer', fontWeight: 700 }}>
                 + Add
@@ -350,12 +569,25 @@ export default function BoardGameEditPage() {
         {/* ── Players ── */}
         {activeTab === 'players' && (
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
               <span style={{ fontSize: 13, opacity: 0.6 }}>{players.length} players</span>
-              <button onClick={handleAddPlayer}
-                style={{ padding: '7px 16px', background: themeColor, border: 'none', color: '#fff', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
-                + Add Player
-              </button>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <CsvImporter
+                  label="players"
+                  themeColor={themeColor}
+                  sampleHeaders={['player_name', 'avatar_url', 'color']}
+                  sampleRow={{ player_name: 'Ash', avatar_url: 'https://example.com/ash.png', color: '#ef4444' }}
+                  onImport={importPlayers}
+                />
+                <button onClick={exportPlayers}
+                  style={{ background: 'none', border: '1px solid #333', color: '#666', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>
+                  ↓ Export CSV
+                </button>
+                <button onClick={handleAddPlayer}
+                  style={{ padding: '7px 16px', background: themeColor, border: 'none', color: '#fff', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>
+                  + Add Player
+                </button>
+              </div>
             </div>
             {players.map(p => (
               <PlayerEditRow
@@ -378,26 +610,18 @@ function PlayerEditRow({ player, onSave, onRemove, themeColor }) {
   const [avatar, setAvatar] = useState(player.avatar_url || '');
   const [dirty, setDirty]   = useState(false);
 
-  const handleChange = (field, value) => {
-    if (field === 'name') setName(value);
-    if (field === 'avatar') setAvatar(value);
-    setDirty(true);
-  };
-
   return (
     <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 0', borderBottom: '1px solid #2a2a3e', flexWrap: 'wrap' }}>
       {avatar
         ? <img src={avatar} alt="" style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
         : <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#2a2a3e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>{name.charAt(0)}</div>
       }
-      <input value={name} onChange={e => handleChange('name', e.target.value)}
+      <input value={name} onChange={e => { setName(e.target.value); setDirty(true); }}
         style={{ flex: '1 1 140px', padding: '7px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }} />
-      <input value={avatar} onChange={e => handleChange('avatar', e.target.value)}
+      <input value={avatar} onChange={e => { setAvatar(e.target.value); setDirty(true); }}
         placeholder="Avatar URL (optional)"
         style={{ flex: '2 1 220px', padding: '7px 10px', background: '#13131f', border: '1px solid #444', color: '#fff', borderRadius: 6, fontSize: 13 }} />
-      <button
-        onClick={() => { onSave({ ...player, name, avatar_url: avatar }); setDirty(false); }}
-        disabled={!dirty}
+      <button onClick={() => { onSave({ ...player, name, avatar_url: avatar }); setDirty(false); }} disabled={!dirty}
         style={{ padding: '7px 14px', background: dirty ? '#2e7d32' : '#2a2a3e', border: 'none', color: '#fff', borderRadius: 6, cursor: dirty ? 'pointer' : 'default', fontWeight: 600, fontSize: 13, opacity: dirty ? 1 : 0.4 }}>
         Save
       </button>
