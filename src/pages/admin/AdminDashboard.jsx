@@ -84,32 +84,34 @@ function EventCard({ event, type }) {
 
   const isBingo = type === 'bingo';
   const isSlots = type === 'slots';
+  const isHighScore = type === 'high_score';
 
   const adminPath =
-    isSlots      ? `/admin/slots/${event.id}` :
-    isBingo      ? `/admin/bingo/${event.id}` :
-    type === 'board_game'  ? `/admin/board/${event.id}` :
-    type === 'high_score'  ? `/admin/highscore/${event.id}` :
+    isSlots     ? `/admin/slots/${event.id}` :
+    isBingo     ? `/admin/bingo/${event.id}` :
+    type === 'board_game' ? `/admin/board/${event.id}` :
+    isHighScore ? `/admin/highscore/${event.id}` :
     `/admin/events/${event.id}`;
 
   const publicPath =
-    isSlots      ? `/slots/${event.id}` :
-    isBingo      ? `/bingo/${event.id}` :
-    type === 'board_game'  ? `/board/${event.id}` :
-    type === 'high_score'  ? `/highscore/${event.id}` :
+    isSlots     ? `/slots/${event.id}` :
+    isBingo     ? `/bingo/${event.id}` :
+    type === 'board_game' ? `/board/${event.id}` :
+    isHighScore ? `/highscore/${event.id}` :
     `/events/${event.slug}/standings`;
 
   const scorePath =
-    isSlots      ? `/admin/slots/${event.id}/scores` :
-    isBingo      ? `/admin/bingo/${event.id}/scores` :
-    type === 'board_game'  ? `/admin/board/${event.id}/scores` :
-    type === 'high_score'  ? `/admin/highscore/${event.id}/scores` :
+    isSlots     ? `/admin/slots/${event.id}/scores` :
+    isBingo     ? `/admin/bingo/${event.id}/scores` :
+    type === 'board_game' ? `/admin/board/${event.id}/scores` :
+    isHighScore ? `/admin/highscore/${event.id}/scores` :
     `/admin/events/${event.id}/scores`;
 
   const editPath =
-    isSlots ? `/admin/slots/${event.id}/edit` :
-    isBingo ? `/admin/bingo/${event.id}/edit` :
+    isSlots     ? `/admin/slots/${event.id}/edit` :
+    isBingo     ? `/admin/bingo/${event.id}/edit` :
     type === 'board_game' ? `/admin/board/${event.id}/edit` :
+    isHighScore ? `/admin/highscore/${event.id}/edit` :
     null;
 
   const typeBadgeLabel =

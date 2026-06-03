@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-import { awardTokens, exportSlotsXLSX } from '../../lib/slots';
+import { awardTokens } from '../../lib/slots';
 import { exportSlotsXLSX as doExport } from '../../lib/slotsExport';
 
 export default function SlotsEventDetailPage() {
@@ -292,7 +292,10 @@ export default function SlotsEventDetailPage() {
                     <tr key={p.id}>
                       <td style={styles.td}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          {p.avatar_url ? <img src={p.avatar_url} style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover' }} /> : <div style={{ width: 24, height: 24, borderRadius: '50%', background: p.color || theme, fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{p.display_name?.[0]}</div>}
+                          {p.avatar_url
+                            ? <img src={p.avatar_url} style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover' }} alt="" />
+                            : <div style={{ width: 24, height: 24, borderRadius: '50%', background: p.color || theme, fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{p.display_name?.[0]}</div>
+                          }
                           {p.display_name}
                         </div>
                       </td>
@@ -346,7 +349,8 @@ export default function SlotsEventDetailPage() {
                 </select>
                 <input placeholder="Amount (use negative to deduct)" type="number" value={awardAmount} onChange={e => setAwardAmount(e.target.value)} style={styles.input} />
                 <input placeholder="Reason (optional)" value={awardReason} onChange={e => setAwardReason(e.target.value)} style={styles.input} />
-                <button onClick={handleAwardTokens} disabled={awardLoading || !awardPlayerId || !awardAmount} style={{ ...styles.btn, background: theme, opacity: (!awardPlayerId || !awardAmount) ? 0.5 : 1 }}>
+                <button onClick={handleAwardTokens} disabled={awardLoading || !awardPlayerId || !awardAmount}
+                  style={{ ...styles.btn, background: theme, opacity: (!awardPlayerId || !awardAmount) ? 0.5 : 1 }}>
                   {awardLoading ? '…' : 'Award Tokens'}
                 </button>
               </div>
@@ -374,7 +378,10 @@ export default function SlotsEventDetailPage() {
                 <tbody>
                   {storeItems.map(item => (
                     <tr key={item.id} style={{ opacity: item.is_active ? 1 : 0.4 }}>
-                      <td style={styles.td}><div style={{ fontWeight: 600 }}>{item.label}</div>{item.description && <div style={{ fontSize: 11, opacity: 0.5 }}>{item.description}</div>}</td>
+                      <td style={styles.td}>
+                        <div style={{ fontWeight: 600 }}>{item.label}</div>
+                        {item.description && <div style={{ fontSize: 11, opacity: 0.5 }}>{item.description}</div>}
+                      </td>
                       <td style={styles.tdNum}>🪙 {item.cost_cpc}</td>
                       <td style={styles.tdNum}>{item.quantity_remaining === null ? '∞' : item.quantity_remaining}</td>
                       <td style={styles.tdNum}>{item.pays_out_slot_tokens ? `🎟️ ${item.pays_out_slot_tokens}` : '—'}</td>
