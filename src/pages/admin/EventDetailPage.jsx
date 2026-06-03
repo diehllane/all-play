@@ -24,16 +24,11 @@ export default function EventDetailPage() {
   const [revertConfirm, setRevertConfirm] = useState(false)
   const [deleteConfirm, setDeleteConfirm] = useState(false)
 
-  // Team form state
   const [newTeamName, setNewTeamName] = useState('')
   const [newTeamDisplay, setNewTeamDisplay] = useState('')
   const [newTeamDivision, setNewTeamDivision] = useState('')
   const [newTeamWebhook, setNewTeamWebhook] = useState('')
-
-  // Division form state
   const [newDivName, setNewDivName] = useState('')
-
-  // Category form state
   const [newCatName, setNewCatName] = useState('')
   const [newCatPts, setNewCatPts] = useState(1)
 
@@ -59,13 +54,10 @@ export default function EventDetailPage() {
     setLoading(false)
   }
 
-  // ── Divisions ─────────────────────────────────────────────
   async function handleAddDivision() {
     if (!newDivName.trim()) return
     const { error } = await supabase.from('divisions').insert({
-      event_id: id,
-      name: newDivName.trim(),
-      division_number: divisions.length + 1,
+      event_id: id, name: newDivName.trim(), division_number: divisions.length + 1,
     })
     if (error) { setMessage({ type: 'error', text: error.message }); return }
     setNewDivName('')
@@ -78,25 +70,19 @@ export default function EventDetailPage() {
     await fetchAll()
   }
 
-  // ── Teams ─────────────────────────────────────────────────
   async function handleAddTeam() {
     if (!newTeamName.trim() || !newTeamDivision) {
       setMessage({ type: 'error', text: 'Team name and division are required.' })
       return
     }
-    const divTeams = teams.filter(t => t.division_id === newTeamDivision)
     const { error } = await supabase.from('teams').insert({
-      event_id: id,
-      division_id: newTeamDivision,
-      name: newTeamName.trim(),
+      event_id: id, division_id: newTeamDivision, name: newTeamName.trim(),
       display_name: newTeamDisplay.trim() || newTeamName.trim(),
       team_number: teams.length + 1,
       discord_webhook_url: newTeamWebhook.trim() || null,
     })
     if (error) { setMessage({ type: 'error', text: error.message }); return }
-    setNewTeamName('')
-    setNewTeamDisplay('')
-    setNewTeamWebhook('')
+    setNewTeamName(''); setNewTeamDisplay(''); setNewTeamWebhook('')
     await fetchAll()
   }
 
@@ -106,23 +92,13 @@ export default function EventDetailPage() {
     await fetchAll()
   }
 
-  async function handleUpdateTeamWebhook(teamId, webhook) {
-    await supabase.from('teams').update({ discord_webhook_url: webhook || null }).eq('id', teamId)
-    await fetchAll()
-  }
-
-  // ── Categories ────────────────────────────────────────────
   async function handleAddCategory() {
     if (!newCatName.trim()) return
     const { error } = await supabase.from('categories').insert({
-      event_id: id,
-      name: newCatName.trim(),
-      multiplier: Number(newCatPts) || 1,
-      display_order: categories.length,
+      event_id: id, name: newCatName.trim(), multiplier: Number(newCatPts) || 1, display_order: categories.length,
     })
     if (error) { setMessage({ type: 'error', text: error.message }); return }
-    setNewCatName('')
-    setNewCatPts(1)
+    setNewCatName(''); setNewCatPts(1)
     await fetchAll()
   }
 
@@ -131,7 +107,6 @@ export default function EventDetailPage() {
     await fetchAll()
   }
 
-  // ── Event controls ────────────────────────────────────────
   async function generateBracketConfig() {
     setSaving(true); setMessage(null)
     try {
@@ -243,7 +218,6 @@ export default function EventDetailPage() {
           <Link to={`/admin/events/${id}/scores`} className="btn btn-primary">Enter Scores</Link>
           <Link to={`/admin/events/${id}/export`} className="btn btn-secondary">Export XLSX</Link>
           <Link to={`/events/${event?.slug}/standings`} className="btn btn-secondary">Public View ↗</Link>
-          {canManage && <Link to={`/admin/events/${id}/scorers`} className="btn btn-secondary">Manage Scorers</Link>}
         </div>
       </div>
 
@@ -256,7 +230,6 @@ export default function EventDetailPage() {
           ))}
         </div>
 
-        {/* ── Overview ── */}
         {activeTab === 'overview' && (
           <div>
             <div className="stats-row">
@@ -295,7 +268,6 @@ export default function EventDetailPage() {
           </div>
         )}
 
-        {/* ── Teams ── */}
         {activeTab === 'teams' && (
           <div>
             {canManage && (
@@ -371,14 +343,9 @@ export default function EventDetailPage() {
                 <button className="btn btn-primary" onClick={handleAddTeam}>+ Add Team</button>
               </div>
             )}
-
-            {divisions.length === 0 && !canManage && (
-              <div className="empty-state"><h3>No divisions or teams yet.</h3></div>
-            )}
           </div>
         )}
 
-        {/* ── Categories ── */}
         {activeTab === 'categories' && (
           <div className="card">
             <div className="card-title">Encounter Categories</div>
@@ -415,7 +382,6 @@ export default function EventDetailPage() {
           </div>
         )}
 
-        {/* ── Bracket Config ── */}
         {activeTab === 'bracket-config' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <div className="card">
@@ -444,7 +410,6 @@ export default function EventDetailPage() {
           </div>
         )}
 
-        {/* ── Settings ── */}
         {activeTab === 'settings' && canManage && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <div className="card">

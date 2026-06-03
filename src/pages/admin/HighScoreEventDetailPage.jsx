@@ -79,8 +79,7 @@ export default function HighScoreEventDetailPage() {
     if (!editTeam) return;
     try {
       await updateHSTeam(editTeam.id, {
-        name: editTeam.name,
-        avatar_url: editTeam.avatar_url,
+        name: editTeam.name, avatar_url: editTeam.avatar_url,
         handicap_multiplier: editTeam.handicap_multiplier,
         discord_webhook_url: editTeam.discord_webhook_url,
       });
@@ -99,9 +98,7 @@ export default function HighScoreEventDetailPage() {
     if (!newPlayer.name.trim()) return;
     try {
       await createHSPlayer(eventId, {
-        name: newPlayer.name,
-        avatar_url: newPlayer.avatar_url,
-        team_id: newPlayer.team_id || null,
+        name: newPlayer.name, avatar_url: newPlayer.avatar_url, team_id: newPlayer.team_id || null,
       });
       setNewPlayer({ name: '', avatar_url: '', team_id: '' });
       await loadAll();
@@ -112,9 +109,7 @@ export default function HighScoreEventDetailPage() {
     if (!editPlayer) return;
     try {
       await updateHSPlayer(editPlayer.id, {
-        name: editPlayer.name,
-        avatar_url: editPlayer.avatar_url,
-        team_id: editPlayer.team_id || null,
+        name: editPlayer.name, avatar_url: editPlayer.avatar_url, team_id: editPlayer.team_id || null,
       });
       setEditPlayer(null);
       await loadAll();
@@ -173,9 +168,6 @@ export default function HighScoreEventDetailPage() {
         <div style={s.topActions}>
           <Link to={`/admin/highscore/${eventId}/scores`} style={s.actionBtn}>Enter Scores</Link>
           <Link to={`/highscore/${eventId}`} style={s.actionBtn}>Public Page</Link>
-          {canManage && (
-            <Link to={`/admin/events/${eventId}/scorers`} style={s.secondaryBtn}>Manage Scorers</Link>
-          )}
           <button onClick={handleExport} style={s.secondaryBtn}>Export XLSX</button>
           {canManage && (
             <button onClick={handleDeleteEvent} style={s.dangerBtn}>Delete Event</button>
@@ -254,7 +246,7 @@ export default function HighScoreEventDetailPage() {
               <div key={t.id} style={s.editRow}>
                 <input value={editTeam.name} onChange={e => setEditTeam(p => ({ ...p, name: e.target.value }))} style={s.input} placeholder="Team name" />
                 <input value={editTeam.avatar_url} onChange={e => setEditTeam(p => ({ ...p, avatar_url: e.target.value }))} style={s.input} placeholder="Avatar URL" />
-                <input value={editTeam.handicap_multiplier} type="number" step="0.1" onChange={e => setEditTeam(p => ({ ...p, handicap_multiplier: e.target.value }))} style={{ ...s.input, width: 80 }} placeholder="Handicap" />
+                <input value={editTeam.handicap_multiplier} type="number" step="0.1" onChange={e => setEditTeam(p => ({ ...p, handicap_multiplier: e.target.value }))} style={{ ...s.input, width: 80 }} />
                 <input value={editTeam.discord_webhook_url} onChange={e => setEditTeam(p => ({ ...p, discord_webhook_url: e.target.value }))} style={s.input} placeholder="Discord webhook URL" />
                 <button onClick={handleSaveTeam} style={s.saveBtn}>Save</button>
                 <button onClick={() => setEditTeam(null)} style={s.cancelBtn}>Cancel</button>
