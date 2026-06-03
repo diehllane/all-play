@@ -18,7 +18,6 @@ import AdminDashboard from './pages/admin/AdminDashboard';
 import CreateEventPage from './pages/admin/CreateEventPage';
 import EventDetailPage from './pages/admin/EventDetailPage';
 import ScoreEntryPage from './pages/admin/ScoreEntryPage';
-import ManageScorersPage from './pages/admin/ManageScorersPage';
 import ChangePasswordPage from './pages/admin/ChangePasswordPage';
 import ExportPage from './pages/admin/ExportPage';
 import BoardGameEventDetailPage from './pages/admin/BoardGameEventDetailPage';
@@ -93,7 +92,6 @@ export default function App() {
           {/* All-Play admin */}
           <Route path="/admin/events/:id" element={<RequireAuth><EventDetailPage /></RequireAuth>} />
           <Route path="/admin/events/:id/scores" element={<RequireAuth><ScoreEntryPage /></RequireAuth>} />
-          <Route path="/admin/events/:id/scorers" element={<RequireAuth><ManageScorersPage /></RequireAuth>} />
           <Route path="/admin/events/:id/export" element={<RequireAuth><ExportPage /></RequireAuth>} />
 
           {/* Board Game admin */}
