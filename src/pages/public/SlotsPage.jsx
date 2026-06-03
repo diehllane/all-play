@@ -1,0 +1,589 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
+import { purchaseStoreItem, setPrizePaid } from '../../lib/slots';
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+
+const ALL_SYMBOLS = ['masterball','pokeball','greatball','ultraball','pikachu','eevee','rare_candy','potion','berry'];
+
+const SYMBOL_LABELS = {
+  masterball: 'Masterball', pokeball: 'Pokeball', greatball: 'Greatball',
+  ultraball: 'Ultraball', pikachu: 'Pikachu', eevee: 'Eevee',
+  rare_candy: 'Rare Candy', potion: 'Potion', berry: 'Berry',
+};
+
+const SYMBOL_EMOJIS = {
+  masterball: '🟣', pokeball: '🔴', greatball: '🔵', ultraball: '🟡',
+  pikachu: '⚡', eevee: '🦊', rare_candy: '🍬', potion: '🧪', berry: '🫐',
+};
+
+export default function SlotsPage() {
+  const { eventId } = useParams();
+  const { user, profile } = useAuth();
+
+  const [config, setConfig] = useState(null);
+  const [event, setEvent] = useState(null);
+  const [players, setPlayers] = useState([]);
+  const [myPlayer, setMyPlayer] = useState(null);
+  const [storeItems, setStoreItems] = useState([]);
+  const [prizeBoard, setPrizeBoard] = useState([]);
+  const [payoutTable, setPayoutTable] = useState([]);
+  const [recentSpins, setRecentSpins] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Slot machine state
+  const [reels, setReels] = useState(['pokeball', 'pokeball', 'pokeball']);
+  const [spinState, setSpinState] = useState('idle');
+  const [lastOutcome, setLastOutcome] = useState(null);
+  const [spinError, setSpinError] = useState(null);
+  const [isSpinning, setIsSpinning] = useState(false);
+
+  // UI state
+  const [activeTab, setActiveTab] = useState('machine');
+  const [purchaseLoading, setPurchaseLoading] = useState(null);
+  const [purchaseMsg, setPurchaseMsg] = useState(null);
+
+  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
+
+  // ─── Load data ───────────────────────────────────────────────
+  const loadAll = useCallback(async () => {
+    try {
+      const [evRes, cfgRes, playersRes, storeRes, prizesRes, payoutRes] = await Promise.all([
+        supabase.from('events').select('*').eq('id', eventId).single(),
+        supabase.from('slots_config').select('*').eq('event_id', eventId).single(),
+        supabase.from('slots_players').select('*').eq('event_id', eventId).order('total_cpc_won', { ascending: false }),
+        supabase.from('slots_store_items').select('*').eq('event_id', eventId).eq('is_active', true).order('cost_cpc'),
+        supabase.from('slots_prize_board').select(`*, slots_players(display_name), slots_store_items(label)`).eq('event_id', eventId).order('purchased_at', { ascending: false }),
+        supabase.from('slots_payout_table').select('*').eq('event_id', eventId).order('payout_cpc', { ascending: false }),
+      ]);
+      if (evRes.error) throw evRes.error;
+      setEvent(evRes.data);
+      setConfig(cfgRes.data);
+      setPlayers(playersRes.data || []);
+      setStoreItems(storeRes.data || []);
+      setPrizeBoard(prizesRes.data || []);
+      setPayoutTable(payoutRes.data || []);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [eventId]);
+
+  const loadMyPlayer = useCallback(async () => {
+    if (!user) { setMyPlayer(null); return; }
+    const { data } = await supabase.from('slots_players').select('*').eq('event_id', eventId).eq('profile_id', user.id).maybeSingle();
+    setMyPlayer(data);
+  }, [eventId, user]);
+
+  const loadRecentSpins = useCallback(async (pid) => {
+    if (!pid) return;
+    const { data } = await supabase.from('slots_spins').select('*').eq('player_id', pid).order('spun_at', { ascending: false }).limit(10);
+    setRecentSpins(data || []);
+  }, []);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+  useEffect(() => { loadMyPlayer(); }, [loadMyPlayer]);
+  useEffect(() => { if (myPlayer) loadRecentSpins(myPlayer.id); }, [myPlayer, loadRecentSpins]);
+
+  // ─── Realtime ─────────────────────────────────────────────────
+  useEffect(() => {
+    const ch = supabase.channel(`slots-page-${eventId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'slots_players', filter: `event_id=eq.${eventId}` }, () => {
+        loadAll(); loadMyPlayer();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'slots_prize_board', filter: `event_id=eq.${eventId}` }, () => {
+        loadAll();
+      })
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [eventId, loadAll, loadMyPlayer]);
+
+  // ─── Spin ──────────────────────────────────────────────────────
+  const handleSpin = async () => {
+    if (!user || !myPlayer) return;
+    if (myPlayer.slot_tokens < 1) { setSpinError('No tokens remaining.'); return; }
+    if (isSpinning) return;
+    setIsSpinning(true);
+    setSpinError(null);
+    setLastOutcome(null);
+    setSpinState('spinning');
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/slots-spin`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_id: eventId, player_id: myPlayer.id }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || 'Spin failed');
+
+      // Hold animation for at least 1.8s then snap reels
+      await new Promise(r => setTimeout(r, 1800));
+      setReels(result.reels);
+      setLastOutcome(result);
+      setSpinState('result_shown');
+
+      // Refresh player balances
+      await loadMyPlayer();
+      if (myPlayer) await loadRecentSpins(myPlayer.id);
+
+      // Refresh leaderboard
+      await loadAll();
+    } catch (e) {
+      setSpinError(e.message);
+      setSpinState('idle');
+    } finally {
+      setIsSpinning(false);
+    }
+  };
+
+  // ─── Purchase ─────────────────────────────────────────────────
+  const handlePurchase = async (item) => {
+    if (!user || !myPlayer) return;
+    if ((myPlayer.casino_prize_coins || 0) < item.cost_cpc) return;
+    setPurchaseLoading(item.id);
+    setPurchaseMsg(null);
+    try {
+      await purchaseStoreItem(eventId, myPlayer.id, item.id, user.id);
+      setPurchaseMsg(`Purchased "${item.label}"!`);
+      await loadMyPlayer();
+      await loadAll();
+    } catch (e) {
+      setPurchaseMsg(`Error: ${e.message}`);
+    } finally {
+      setPurchaseLoading(null);
+      setTimeout(() => setPurchaseMsg(null), 4000);
+    }
+  };
+
+  // ─── Mark paid ────────────────────────────────────────────────
+  const handleMarkPaid = async (entry, paid) => {
+    if (!canManage) return;
+    await setPrizePaid(eventId, entry.id, paid, user.id);
+    await loadAll();
+  };
+
+  // ─── Symbol rendering ─────────────────────────────────────────
+  const getSymbolImg = (sym) => {
+    const custom = config?.symbol_images?.[sym];
+    if (custom) return <img src={custom} alt={sym} style={{ width: 48, height: 48, objectFit: 'contain' }} />;
+    return <span style={{ fontSize: 40, lineHeight: 1 }}>{ALL_SYMBOLS.includes(sym) ? getDefaultEmoji(sym) : '❓'}</span>;
+  };
+
+  const getDefaultEmoji = (sym) => {
+    const emojis = { masterball: '🟣', pokeball: '🔴', greatball: '🔵', ultraball: '🟡', pikachu: '⚡', eevee: '🦊', rare_candy: '🍬', potion: '🧪', berry: '🫐' };
+    return emojis[sym] || '❓';
+  };
+
+  // ─── Theme color ──────────────────────────────────────────────
+  const theme = config?.theme_color || '#c62828';
+
+  if (loading) return <div style={styles.center}>Loading…</div>;
+  if (error) return <div style={styles.center}>Error: {error}</div>;
+  if (!config) return <div style={styles.center}>Event not found.</div>;
+
+  const myTokens = myPlayer?.slot_tokens ?? 0;
+  const myCpc = myPlayer?.casino_prize_coins ?? 0;
+  const isWin = lastOutcome && lastOutcome.payout_cpc > 0;
+  const isJackpot = lastOutcome?.payout_cpc >= 8100;
+
+  return (
+    <div style={{ ...styles.page, background: '#0a0a0f' }}>
+      {/* ─── Header ─────────────────────────────────────── */}
+      <div style={{ ...styles.header, borderBottomColor: theme }}>
+        <div style={styles.headerLeft}>
+          {config.banner_image_url
+            ? <img src={config.banner_image_url} alt="banner" style={{ height: 48, borderRadius: 6 }} />
+            : <div>
+                <div style={{ ...styles.title, color: theme }}>{config.game_title || event?.name}</div>
+                {config.game_subtitle && <div style={styles.subtitle}>{config.game_subtitle}</div>}
+              </div>
+          }
+        </div>
+        {user && myPlayer && (
+          <div style={styles.balanceBar}>
+            <div style={styles.balanceChip}>
+              <span style={{ fontSize: 18 }}>🎟️</span>
+              <span style={{ fontWeight: 700, fontSize: 18 }}>{myTokens.toLocaleString()}</span>
+              <span style={{ fontSize: 11, opacity: 0.6 }}>tokens</span>
+            </div>
+            <div style={{ ...styles.balanceChip, background: 'rgba(212,175,55,0.15)', borderColor: '#d4af37' }}>
+              <span style={{ fontSize: 18 }}>🪙</span>
+              <span style={{ fontWeight: 700, fontSize: 18, color: '#d4af37' }}>{myCpc.toLocaleString()}</span>
+              <span style={{ fontSize: 11, opacity: 0.6 }}>CPC</span>
+            </div>
+            <span style={{ fontSize: 12, opacity: 0.5 }}>as {myPlayer.display_name}</span>
+          </div>
+        )}
+        {user && !myPlayer && (
+          <div style={{ fontSize: 12, opacity: 0.5 }}>Not enrolled in this event</div>
+        )}
+        {!user && (
+          <Link to="/admin" style={{ ...styles.btn, background: theme, textDecoration: 'none', fontSize: 13, padding: '6px 14px' }}>
+            Log In to Spin
+          </Link>
+        )}
+      </div>
+
+      {/* ─── Nav tabs ───────────────────────────────────── */}
+      <div style={styles.tabBar}>
+        {[['machine','🎰 Slots'],['store','🛒 Store'],['board','🏅 Prize Board'],['leaderboard','🏆 Leaderboard'],['paytable','📋 Pay Table']].map(([id,label]) => (
+          <button key={id} onClick={() => setActiveTab(id)}
+            style={{ ...styles.tab, ...(activeTab===id ? { borderBottomColor: theme, color: '#fff' } : {}) }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div style={styles.content}>
+        {/* ═══════════════ SLOT MACHINE ═══════════════════ */}
+        {activeTab === 'machine' && (
+          <div style={styles.machineWrap}>
+            {/* Cabinet */}
+            <div style={{ ...styles.cabinet, borderColor: theme, boxShadow: `0 0 40px ${theme}33, inset 0 0 60px rgba(0,0,0,0.5)` }}>
+              <div style={{ ...styles.cabinetTop, background: theme }}>
+                <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase' }}>
+                  {config.game_title || 'PokeNexus Slots'}
+                </span>
+              </div>
+
+              {/* Reels */}
+              <div style={styles.reelWindow}>
+                {reels.map((sym, i) => (
+                  <div key={i} style={{
+                    ...styles.reel,
+                    borderColor: theme,
+                    animation: isSpinning ? `reelSpin 0.15s linear infinite` : 'none',
+                    animationDelay: `${i * 0.05}s`,
+                    background: isWin ? `rgba(${hexToRgb(theme)},0.1)` : 'rgba(0,0,0,0.5)',
+                  }}>
+                    <div style={styles.reelInner}>
+                      {getSymbolImg(sym)}
+                    </div>
+                    <div style={{ ...styles.reelLabel, color: isSpinning ? 'transparent' : '#ccc' }}>
+                      {SYMBOL_LABELS[sym] || sym}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Payline */}
+              <div style={{ ...styles.payline, borderColor: `${theme}88` }} />
+
+              {/* Result banner */}
+              <div style={styles.resultBanner}>
+                {isSpinning && <div style={{ color: '#888', fontSize: 14, letterSpacing: 2 }}>SPINNING…</div>}
+                {!isSpinning && lastOutcome && (
+                  <div style={{
+                    color: isJackpot ? '#FFD700' : isWin ? '#4CAF50' : '#888',
+                    fontSize: isJackpot ? 22 : 16,
+                    fontWeight: 700,
+                    textShadow: isJackpot ? '0 0 20px #FFD700' : 'none',
+                  }}>
+                    {isJackpot ? '🏆 JACKPOT! 🏆' : isWin ? `+${lastOutcome.payout_cpc} CPC` : 'No Win'}
+                  </div>
+                )}
+                {!isSpinning && !lastOutcome && !spinError && (
+                  <div style={{ color: '#555', fontSize: 12 }}>Press SPIN to play</div>
+                )}
+                {spinError && <div style={{ color: '#f44', fontSize: 13 }}>{spinError}</div>}
+              </div>
+
+              {/* Spin button */}
+              <div style={{ textAlign: 'center', paddingBottom: 20 }}>
+                <button
+                  onClick={handleSpin}
+                  disabled={!user || !myPlayer || isSpinning || myTokens < 1}
+                  title={!user ? 'Log in to spin' : !myPlayer ? 'Not enrolled' : myTokens < 1 ? 'No tokens' : 'Spin!'}
+                  style={{
+                    ...styles.spinBtn,
+                    background: isSpinning ? '#333' : theme,
+                    boxShadow: isSpinning ? 'none' : `0 0 20px ${theme}88`,
+                    cursor: (!user || !myPlayer || myTokens < 1 || isSpinning) ? 'not-allowed' : 'pointer',
+                    opacity: (!user || !myPlayer || myTokens < 1) && !isSpinning ? 0.5 : 1,
+                  }}>
+                  {isSpinning ? '⏳ SPINNING' : '🎰 SPIN (1 🎟️)'}
+                </button>
+              </div>
+            </div>
+
+            {/* Recent spins */}
+            {user && myPlayer && recentSpins.length > 0 && (
+              <div style={styles.recentWrap}>
+                <div style={{ ...styles.sectionTitle, color: theme }}>My Recent Spins</div>
+                {recentSpins.map((spin, i) => (
+                  <div key={i} style={styles.spinRow}>
+                    <div style={styles.spinReels}>
+                      {spin.reels?.map((s, j) => (
+                        <span key={j} style={{ fontSize: 18 }}>{getDefaultEmoji(s)}</span>
+                      ))}
+                    </div>
+                    <div style={{ color: spin.payout_cpc > 0 ? '#4CAF50' : '#555', fontWeight: 600, minWidth: 60, textAlign: 'right' }}>
+                      {spin.payout_cpc > 0 ? `+${spin.payout_cpc}` : '—'}
+                    </div>
+                    <div style={{ fontSize: 11, opacity: 0.4, minWidth: 80, textAlign: 'right' }}>
+                      {new Date(spin.spun_at).toLocaleTimeString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ═══════════════ PRIZE STORE ════════════════════ */}
+        {activeTab === 'store' && (
+          <div style={styles.panelWrap}>
+            <div style={styles.panelHeader}>
+              <span style={{ ...styles.sectionTitle, color: theme }}>🛒 Prize Store</span>
+              {user && myPlayer && (
+                <span style={{ fontSize: 13, color: '#d4af37' }}>Balance: {myCpc.toLocaleString()} 🪙 CPC</span>
+              )}
+            </div>
+            {purchaseMsg && (
+              <div style={{ ...styles.flashMsg, background: purchaseMsg.startsWith('Error') ? '#f443361a' : '#4caf501a', borderColor: purchaseMsg.startsWith('Error') ? '#f44' : '#4caf50' }}>
+                {purchaseMsg}
+              </div>
+            )}
+            {storeItems.length === 0 && <div style={styles.empty}>No items in the store yet.</div>}
+            <div style={styles.storeGrid}>
+              {storeItems.map(item => {
+                const canAfford = myPlayer && myCpc >= item.cost_cpc;
+                const soldOut = item.quantity_remaining !== null && item.quantity_remaining <= 0;
+                return (
+                  <div key={item.id} style={{ ...styles.storeCard, borderColor: soldOut ? '#333' : theme, opacity: soldOut ? 0.5 : 1 }}>
+                    {item.image_url && <img src={item.image_url} alt={item.label} style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: '8px 8px 0 0' }} />}
+                    <div style={styles.storeCardBody}>
+                      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{item.label}</div>
+                      {item.description && <div style={{ fontSize: 12, opacity: 0.6, marginBottom: 8 }}>{item.description}</div>}
+                      {item.pays_out_slot_tokens && (
+                        <div style={{ fontSize: 12, color: '#90CAF9', marginBottom: 6 }}>+{item.pays_out_slot_tokens} 🎟️ tokens</div>
+                      )}
+                      {item.quantity_remaining !== null && (
+                        <div style={{ fontSize: 11, opacity: 0.5, marginBottom: 6 }}>
+                          {soldOut ? 'Sold out' : `${item.quantity_remaining} remaining`}
+                        </div>
+                      )}
+                      <div style={{ ...styles.storePrice, color: '#d4af37' }}>
+                        🪙 {item.cost_cpc.toLocaleString()} CPC
+                      </div>
+                      <button
+                        onClick={() => handlePurchase(item)}
+                        disabled={!user || !myPlayer || !canAfford || soldOut || purchaseLoading === item.id}
+                        style={{
+                          ...styles.purchaseBtn,
+                          background: (soldOut || !canAfford) ? '#333' : theme,
+                          cursor: (!user || !myPlayer || !canAfford || soldOut) ? 'not-allowed' : 'pointer',
+                          opacity: (!user || !myPlayer || !canAfford || soldOut) ? 0.5 : 1,
+                        }}>
+                        {purchaseLoading === item.id ? '…' : soldOut ? 'Sold Out' : !user ? 'Log In' : !myPlayer ? 'Not Enrolled' : !canAfford ? 'Insufficient CPC' : 'Purchase'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ═══════════════ PRIZE BOARD ════════════════════ */}
+        {activeTab === 'board' && (
+          <div style={styles.panelWrap}>
+            <div style={styles.panelHeader}>
+              <span style={{ ...styles.sectionTitle, color: theme }}>🏅 Prize Board</span>
+            </div>
+            {prizeBoard.length === 0 && <div style={styles.empty}>No prizes claimed yet.</div>}
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  {['Player','Prize','Cost','Date','Status', canManage && 'Mark'].filter(Boolean).map(h => (
+                    <th key={h} style={styles.th}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {prizeBoard.map(entry => (
+                  <tr key={entry.id} style={{ opacity: entry.paid ? 0.5 : 1 }}>
+                    <td style={styles.td}>{entry.slots_players?.display_name || '—'}</td>
+                    <td style={styles.td}>{entry.slots_store_items?.label || '—'}</td>
+                    <td style={styles.td}>🪙 {entry.cost_cpc_at_purchase}</td>
+                    <td style={styles.td}>{new Date(entry.purchased_at).toLocaleDateString()}</td>
+                    <td style={styles.td}>
+                      <span style={{ color: entry.paid ? '#4CAF50' : '#888', fontSize: 12 }}>
+                        {entry.paid ? '✅ Fulfilled' : '⏳ Pending'}
+                      </span>
+                    </td>
+                    {canManage && (
+                      <td style={styles.td}>
+                        <button onClick={() => handleMarkPaid(entry, !entry.paid)}
+                          style={{ ...styles.smallBtn, background: entry.paid ? '#555' : '#4CAF50' }}>
+                          {entry.paid ? 'Unmark' : 'Fulfill'}
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* ═══════════════ LEADERBOARD ════════════════════ */}
+        {activeTab === 'leaderboard' && (
+          <div style={styles.panelWrap}>
+            <div style={styles.panelHeader}>
+              <span style={{ ...styles.sectionTitle, color: theme }}>🏆 Leaderboard</span>
+            </div>
+            {players.length === 0 && <div style={styles.empty}>No players yet.</div>}
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  {['#','Player','Spins','Total CPC Won','Jackpots','Tokens','CPC Balance'].map(h => (
+                    <th key={h} style={styles.th}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {players.map((p, i) => (
+                  <tr key={p.id} style={{ background: myPlayer?.id === p.id ? `${theme}15` : 'transparent' }}>
+                    <td style={{ ...styles.td, color: '#888', width: 30 }}>{i + 1}</td>
+                    <td style={styles.td}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {p.avatar_url
+                          ? <img src={p.avatar_url} style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }} />
+                          : <div style={{ width: 28, height: 28, borderRadius: '50%', background: p.color || theme, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>
+                              {p.display_name?.[0]?.toUpperCase()}
+                            </div>
+                        }
+                        {p.display_name}
+                        {myPlayer?.id === p.id && <span style={{ fontSize: 10, color: theme }}>YOU</span>}
+                      </div>
+                    </td>
+                    <td style={styles.tdNum}>{p.total_spins?.toLocaleString()}</td>
+                    <td style={{ ...styles.tdNum, color: '#d4af37' }}>🪙 {p.total_cpc_won?.toLocaleString()}</td>
+                    <td style={{ ...styles.tdNum, color: p.jackpots_hit > 0 ? '#FFD700' : '#555' }}>
+                      {p.jackpots_hit > 0 ? `🏆 ${p.jackpots_hit}` : '—'}
+                    </td>
+                    <td style={styles.tdNum}>🎟️ {p.slot_tokens?.toLocaleString()}</td>
+                    <td style={{ ...styles.tdNum, color: '#d4af37' }}>🪙 {p.casino_prize_coins?.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* ═══════════════ PAY TABLE ══════════════════════ */}
+        {activeTab === 'paytable' && (
+          <div style={styles.panelWrap}>
+            <div style={styles.panelHeader}>
+              <span style={{ ...styles.sectionTitle, color: theme }}>📋 Pay Table</span>
+              <span style={{ fontSize: 12, color: '#888' }}>Fixed 85% RTP · 10,000 weight pool</span>
+            </div>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  {['Outcome','Symbols','Payout (CPC)','Probability'].map(h => (
+                    <th key={h} style={styles.th}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {payoutTable.map(row => (
+                  <tr key={row.id} style={{ background: row.is_jackpot ? '#FFD70010' : 'transparent' }}>
+                    <td style={{ ...styles.td, color: row.is_jackpot ? '#FFD700' : '#ccc', fontWeight: row.is_jackpot ? 700 : 400 }}>
+                      {row.is_jackpot && '🏆 '}{row.label}
+                    </td>
+                    <td style={styles.td}>
+                      {(row.symbols || []).map((s, i) => (
+                        <span key={i} style={{ fontSize: 18, marginRight: 2 }}>
+                          {config?.symbol_images?.[s]
+                            ? <img src={config.symbol_images[s]} style={{ width: 20, height: 20, objectFit: 'contain', verticalAlign: 'middle' }} />
+                            : getDefaultEmoji(s)}
+                        </span>
+                      ))}
+                      {row.category === 'scatter' && <span style={{ fontSize: 11, opacity: 0.5, marginLeft: 4 }}>(any reel)</span>}
+                    </td>
+                    <td style={{ ...styles.tdNum, color: row.payout_cpc > 100 ? '#FFD700' : row.payout_cpc > 10 ? '#90CAF9' : '#ccc', fontWeight: 700 }}>
+                      {row.payout_cpc.toLocaleString()}
+                    </td>
+                    <td style={{ ...styles.tdNum, color: '#888', fontSize: 12 }}>
+                      {((row.weight / 100)).toFixed(2)}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{ padding: '12px 0', fontSize: 12, opacity: 0.4, textAlign: 'center' }}>
+              Per 1,000 tokens wagered: avg 4,250 CPC returned (85% RTP). House edge: 750 CPC / 5,000 wagered.
+            </div>
+          </div>
+        )}
+      </div>
+
+      <style>{`
+        @keyframes reelSpin {
+          0% { transform: translateY(0); }
+          50% { transform: translateY(-6px); }
+          100% { transform: translateY(0); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// Utility
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `${r},${g},${b}`;
+}
+
+const styles = {
+  page: { minHeight: '100vh', color: '#e0e0e0', fontFamily: "'Segoe UI', sans-serif" },
+  center: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: '50vh', color: '#888' },
+  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 24px', borderBottom: '2px solid', background: '#111' },
+  headerLeft: { display: 'flex', alignItems: 'center', gap: 12 },
+  title: { fontSize: 22, fontWeight: 800, letterSpacing: 1 },
+  subtitle: { fontSize: 13, opacity: 0.6 },
+  balanceBar: { display: 'flex', alignItems: 'center', gap: 10 },
+  balanceChip: { display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 20, padding: '6px 14px' },
+  tabBar: { display: 'flex', background: '#111', borderBottom: '1px solid #222', padding: '0 12px', gap: 4 },
+  tab: { background: 'none', border: 'none', borderBottom: '2px solid transparent', color: '#666', padding: '10px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 500, transition: 'all 0.15s' },
+  content: { maxWidth: 960, margin: '0 auto', padding: 24 },
+  machineWrap: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 24 },
+  cabinet: { width: '100%', maxWidth: 520, borderRadius: 16, border: '2px solid', background: '#111', overflow: 'hidden' },
+  cabinetTop: { padding: '10px 20px', textAlign: 'center', color: '#fff', fontWeight: 700 },
+  reelWindow: { display: 'flex', justifyContent: 'center', gap: 12, padding: '24px 20px 12px' },
+  reel: { width: 120, height: 100, border: '2px solid', borderRadius: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', transition: 'background 0.3s' },
+  reelInner: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: 56 },
+  reelLabel: { fontSize: 11, marginTop: 4 },
+  payline: { height: 2, borderTop: '1px dashed', margin: '0 20px', opacity: 0.4 },
+  resultBanner: { height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  spinBtn: { padding: '14px 48px', fontSize: 16, fontWeight: 800, color: '#fff', border: 'none', borderRadius: 30, letterSpacing: 1, transition: 'all 0.2s' },
+  recentWrap: { width: '100%', maxWidth: 520, background: '#111', borderRadius: 10, padding: 16 },
+  spinRow: { display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', borderBottom: '1px solid #1a1a1a' },
+  spinReels: { display: 'flex', gap: 4, flex: 1 },
+  panelWrap: { width: '100%' },
+  panelHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  sectionTitle: { fontSize: 18, fontWeight: 700 },
+  flashMsg: { padding: '10px 16px', borderRadius: 8, border: '1px solid', marginBottom: 16, fontSize: 13 },
+  storeGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16 },
+  storeCard: { background: '#111', borderRadius: 10, border: '1px solid', overflow: 'hidden' },
+  storeCardBody: { padding: 14 },
+  storePrice: { fontWeight: 700, fontSize: 15, marginBottom: 10 },
+  purchaseBtn: { width: '100%', padding: '8px', fontSize: 13, fontWeight: 600, color: '#fff', border: 'none', borderRadius: 6 },
+  empty: { textAlign: 'center', color: '#444', padding: '40px 0' },
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
+  th: { textAlign: 'left', padding: '8px 12px', borderBottom: '1px solid #222', color: '#888', fontWeight: 600, fontSize: 12 },
+  td: { padding: '10px 12px', borderBottom: '1px solid #1a1a1a', color: '#ccc' },
+  tdNum: { padding: '10px 12px', borderBottom: '1px solid #1a1a1a', textAlign: 'right', color: '#ccc' },
+  smallBtn: { padding: '4px 10px', fontSize: 11, fontWeight: 600, color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer' },
+  btn: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, color: '#fff', border: 'none', cursor: 'pointer' },
+};
