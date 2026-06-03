@@ -199,7 +199,7 @@ export default function SlotsEventDetailPage() {
           <Link to={`/admin/slots/${eventId}/scores`} style={{ ...styles.linkBtn, background: theme }}>📝 Score Entry</Link>
           <Link to={`/admin/slots/${eventId}/edit`} style={styles.linkBtn}>⚙️ Edit Config</Link>
           <button onClick={handleExport} disabled={exporting} style={styles.linkBtn}>
-            {exporting ? '…' : '📥 Export XLSX'}
+            {exporting ? '…' : '📥 Export Results XLSX'}
           </button>
         </div>
       </div>

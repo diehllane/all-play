@@ -168,7 +168,7 @@ export default function HighScoreEventDetailPage() {
         <div style={s.topActions}>
           <Link to={`/admin/highscore/${eventId}/scores`} style={s.actionBtn}>Enter Scores</Link>
           <Link to={`/highscore/${eventId}`} style={s.actionBtn}>Public Page</Link>
-          <button onClick={handleExport} style={s.secondaryBtn}>Export XLSX</button>
+          <button onClick={handleExport} style={s.secondaryBtn}>Export Results XLSX</button>
           {canManage && (
             <button onClick={handleDeleteEvent} style={s.dangerBtn}>Delete Event</button>
           )}

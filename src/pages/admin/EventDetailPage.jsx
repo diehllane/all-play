@@ -216,7 +216,7 @@ export default function EventDetailPage() {
         </div>
         <div className="page-header-actions">
           <Link to={`/admin/events/${id}/scores`} className="btn btn-primary">Enter Scores</Link>
-          <Link to={`/admin/events/${id}/export`} className="btn btn-secondary">Export XLSX</Link>
+          <Link to={`/admin/events/${id}/export`} className="btn btn-secondary">Export Results XLSX</Link>
           <Link to={`/events/${event?.slug}/standings`} className="btn btn-secondary">Public View ↗</Link>
         </div>
       </div>

@@ -140,7 +140,7 @@ export default function BoardGameEventDetailPage() {
           </Link>
           <button onClick={handleExport}
             style={{ padding: '8px 16px', background: '#1a3a1a', border: '1px solid #2e7d32', color: '#fff', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>
-            📥 Export XLSX
+            📥 Export Results XLSX
           </button>
         </div>
       </div>

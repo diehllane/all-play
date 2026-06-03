@@ -31,6 +31,7 @@ export default function AdminDashboard() {
   const allPlay = events.filter(e => e.event_type === 'all_play');
   const highScore = events.filter(e => e.event_type === 'high_score');
   const bingo = events.filter(e => ['bingo_solo', 'bingo_team'].includes(e.event_type));
+  const slots = events.filter(e => e.event_type === 'slots');
 
   return (
     <div style={s.page}>
@@ -55,6 +56,7 @@ export default function AdminDashboard() {
           <EventSection title="🎲 Board Game Events" events={boardGames} type="board_game" />
           <EventSection title="⚔️ All-Play Tournaments" events={allPlay} type="all_play" />
           <EventSection title="🎯 Bingo Events" events={bingo} type="bingo" />
+          <EventSection title="🎰 Slots Events" events={slots} type="slots" />
         </>
       )}
     </div>
@@ -81,29 +83,45 @@ function EventCard({ event, type }) {
   }[event.status] || '#888';
 
   const isBingo = type === 'bingo';
+  const isSlots = type === 'slots';
 
   const adminPath =
-    isBingo ? `/admin/bingo/${event.id}` :
-    type === 'board_game' ? `/admin/board/${event.id}` :
-    type === 'high_score' ? `/admin/highscore/${event.id}` :
+    isSlots      ? `/admin/slots/${event.id}` :
+    isBingo      ? `/admin/bingo/${event.id}` :
+    type === 'board_game'  ? `/admin/board/${event.id}` :
+    type === 'high_score'  ? `/admin/highscore/${event.id}` :
     `/admin/events/${event.id}`;
 
   const publicPath =
-    isBingo ? `/bingo/${event.id}` :
-    type === 'board_game' ? `/board/${event.id}` :
-    type === 'high_score' ? `/highscore/${event.id}` :
+    isSlots      ? `/slots/${event.id}` :
+    isBingo      ? `/bingo/${event.id}` :
+    type === 'board_game'  ? `/board/${event.id}` :
+    type === 'high_score'  ? `/highscore/${event.id}` :
     `/events/${event.slug}/standings`;
 
   const scorePath =
-    isBingo ? `/admin/bingo/${event.id}/scores` :
-    type === 'board_game' ? `/admin/board/${event.id}/scores` :
-    type === 'high_score' ? `/admin/highscore/${event.id}/scores` :
+    isSlots      ? `/admin/slots/${event.id}/scores` :
+    isBingo      ? `/admin/bingo/${event.id}/scores` :
+    type === 'board_game'  ? `/admin/board/${event.id}/scores` :
+    type === 'high_score'  ? `/admin/highscore/${event.id}/scores` :
     `/admin/events/${event.id}/scores`;
+
+  const editPath =
+    isSlots ? `/admin/slots/${event.id}/edit` :
+    isBingo ? `/admin/bingo/${event.id}/edit` :
+    type === 'board_game' ? `/admin/board/${event.id}/edit` :
+    null;
 
   const typeBadgeLabel =
     event.event_type === 'bingo_solo' ? 'Solo Bingo' :
     event.event_type === 'bingo_team' ? 'Team Bingo' :
+    event.event_type === 'slots'      ? 'Slots' :
     null;
+
+  const typeBadgeStyle =
+    event.event_type === 'slots'
+      ? { ...s.typeBadge, background: '#001a1a', color: '#00e5ff' }
+      : s.typeBadge;
 
   return (
     <div style={s.card}>
@@ -114,7 +132,7 @@ function EventCard({ event, type }) {
             <span style={{ ...s.statusDot, background: statusColor }} />
             <span style={s.statusText}>{event.status}</span>
             {typeBadgeLabel && (
-              <span style={s.typeBadge}>{typeBadgeLabel}</span>
+              <span style={typeBadgeStyle}>{typeBadgeLabel}</span>
             )}
           </div>
         </div>
@@ -122,8 +140,8 @@ function EventCard({ event, type }) {
       <div style={s.cardActions}>
         <Link to={adminPath} style={s.actionLink}>Manage</Link>
         <Link to={scorePath} style={s.actionLink}>Scores</Link>
-        {isBingo && (
-          <Link to={`/admin/bingo/${event.id}/edit`} style={s.actionLink}>Edit</Link>
+        {editPath && (
+          <Link to={editPath} style={s.actionLink}>Edit</Link>
         )}
         <Link to={publicPath} style={{ ...s.actionLink, ...s.publicLink }}>Public ↗</Link>
       </div>

@@ -1,5 +1,5 @@
 // src/pages/admin/CreateEventPage.jsx
-// Step 0: pick event type (board_game | all_play | high_score | bingo_solo | bingo_team)
+// Step 0: pick event type (board_game | all_play | high_score | bingo_solo | bingo_team | slots)
 // Then branches to type-specific wizard.
 
 import { useState } from 'react';
@@ -7,6 +7,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { upsertHSConfig } from '../../lib/highscore';
+import { seedSlotsEvent } from '../../lib/slots';
 
 const ACC = '#c62828';
 
@@ -48,6 +49,13 @@ const EVENT_TYPES = [
     description: '5×5 bingo board. Teams collaborate to complete rows, columns, and diagonals together.',
     comingSoon: false,
   },
+  {
+    id: 'slots',
+    icon: '🎰',
+    label: 'Slots',
+    description: 'Players earn Slot Tokens from daily scores and spin a slot machine to win Casino Prize Coins.',
+    comingSoon: false,
+  },
 ];
 
 export default function CreateEventPage() {
@@ -63,6 +71,7 @@ export default function CreateEventPage() {
   if (eventType === 'all_play') return <AllPlayWizard />;
   if (eventType === 'high_score') return <HighScoreWizard />;
   if (eventType === 'bingo_solo' || eventType === 'bingo_team') return <BingoWizard eventType={eventType} />;
+  if (eventType === 'slots') return <SlotsWizard />;
   return null;
 }
 
@@ -715,6 +724,264 @@ function AllPlayWizard() {
           </select>
           <div style={s.navRow}>
             <button onClick={() => setWizStep(1)} style={s.backBtn}>← Back</button>
+            <button onClick={handleCreate} disabled={saving} style={s.createBtn}>
+              {saving ? 'Creating...' : 'Create Event'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Slots Wizard ──────────────────────────────────────────────
+
+function SlotsWizard() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [wizStep, setWizStep] = useState(1);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  // Step 1 — Basic Info
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [gameTitle, setGameTitle] = useState('');
+  const [gameSubtitle, setGameSubtitle] = useState('');
+  const [bannerUrl, setBannerUrl] = useState('');
+  const [themeColor, setThemeColor] = useState('#c62828');
+  const [discordWebhook, setDiscordWebhook] = useState('');
+
+  // Step 2 — Scoring & Categories
+  const [categories, setCategories] = useState([{ label: '', point_value: 1 }]);
+  const [scoreDivisor, setScoreDivisor] = useState(1);
+  const [scoreOperation, setScoreOperation] = useState('divide');
+  const [scoreRounding, setScoreRounding] = useState('floor');
+  const [minTokens, setMinTokens] = useState(0);
+  const [maxTokens, setMaxTokens] = useState(0);
+
+  // Step 3 — Symbol Images (optional)
+  const SYMBOLS = ['masterball','pokeball','greatball','ultraball','pikachu','eevee','rare_candy','potion','berry'];
+  const SYMBOL_LABELS = { masterball:'Masterball', pokeball:'Pokeball', greatball:'Greatball', ultraball:'Ultraball', pikachu:'Pikachu', eevee:'Eevee', rare_candy:'Rare Candy', potion:'Potion', berry:'Berry' };
+  const [symbolImages, setSymbolImages] = useState({});
+
+  // Step 4 — Store Setup (optional)
+  const [storeItems, setStoreItems] = useState([]);
+
+  const addCat = () => setCategories(c => [...c, { label: '', point_value: 1 }]);
+  const removeCat = i => setCategories(c => c.filter((_, idx) => idx !== i));
+  const updateCat = (i, field, val) => setCategories(c => c.map((cat, idx) => idx === i ? { ...cat, [field]: val } : cat));
+
+  const addStoreItem = () => setStoreItems(s => [...s, { label: '', cost_cpc: 100, quantity: null, pays_out_slot_tokens: 0 }]);
+  const removeStoreItem = i => setStoreItems(s => s.filter((_, idx) => idx !== i));
+  const updateStoreItem = (i, field, val) => setStoreItems(s => s.map((item, idx) => idx === i ? { ...item, [field]: val } : item));
+
+  async function handleCreate() {
+    setSaving(true);
+    setMsg('');
+    try {
+      const autoSlug = slug.trim() || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      const { data: ev, error: evErr } = await supabase.from('events').insert({
+        name: name.trim(),
+        slug: autoSlug,
+        event_type: 'slots',
+        status: 'active',
+        created_by: user?.id,
+      }).select().single();
+      if (evErr) throw evErr;
+
+      await seedSlotsEvent({
+        eventId: ev.id,
+        gameTitle: gameTitle.trim() || name.trim(),
+        gameSubtitle: gameSubtitle.trim() || null,
+        themeColor,
+        discordWebhookUrl: discordWebhook.trim() || null,
+        scoreDivisor: Number(scoreDivisor),
+        scoreOperation,
+        scoreRounding,
+        minTokensPerDay: Number(minTokens),
+        maxTokensPerDay: Number(maxTokens),
+        categories: categories.filter(c => c.label.trim()),
+      });
+
+      // Insert symbol images into config if any provided
+      const symImgMap = {};
+      for (const sym of SYMBOLS) {
+        if (symbolImages[sym]?.trim()) symImgMap[sym] = symbolImages[sym].trim();
+      }
+      if (Object.keys(symImgMap).length > 0) {
+        await supabase.from('slots_config').update({ symbol_images: symImgMap }).eq('event_id', ev.id);
+      }
+
+      // Insert store items if any
+      if (storeItems.length > 0) {
+        const rows = storeItems
+          .filter(i => i.label.trim())
+          .map((i, idx) => ({
+            event_id: ev.id,
+            label: i.label.trim(),
+            cost_cpc: Number(i.cost_cpc) || 100,
+            quantity_remaining: i.quantity ? Number(i.quantity) : null,
+            pays_out_slot_tokens: Number(i.pays_out_slot_tokens) || 0,
+            is_active: true,
+            sort_order: idx,
+          }));
+        if (rows.length > 0) await supabase.from('slots_store_items').insert(rows);
+      }
+
+      navigate(`/admin/slots/${ev.id}`);
+    } catch (e) {
+      setMsg(e.message);
+      setSaving(false);
+    }
+  }
+
+  const steps = ['Basic Info', 'Scoring', 'Symbols', 'Store'];
+
+  return (
+    <div style={s.page}>
+      <Link to="/admin" style={s.back}>← Dashboard</Link>
+      <h1 style={s.title}>New Slots Event</h1>
+
+      <div style={s.stepRow}>
+        {steps.map((label, i) => (
+          <div key={i} style={{ ...s.step, ...(wizStep === i + 1 ? s.stepActive : {}) }}>
+            <span style={s.stepNum}>{i + 1}</span> {label}
+          </div>
+        ))}
+      </div>
+
+      {msg && <div style={s.msg}>{msg}</div>}
+
+      {wizStep === 1 && (
+        <div style={s.card}>
+          <h2 style={s.cardTitle}>Basic Info</h2>
+          <label style={s.label}>Internal Event Name *</label>
+          <input value={name} onChange={e => setName(e.target.value)} style={s.input} placeholder="Summer Slots 2026" />
+          <label style={s.label}>URL Slug (auto-generated if blank)</label>
+          <input value={slug} onChange={e => setSlug(e.target.value)} style={s.input} placeholder="summer-slots-2026" />
+          <label style={s.label}>Display Title (shown on public board)</label>
+          <input value={gameTitle} onChange={e => setGameTitle(e.target.value)} style={s.input} placeholder="Same as event name if blank" />
+          <label style={s.label}>Subtitle</label>
+          <input value={gameSubtitle} onChange={e => setGameSubtitle(e.target.value)} style={s.input} placeholder="Optional tagline" />
+          <label style={s.label}>Banner Image URL</label>
+          <input value={bannerUrl} onChange={e => setBannerUrl(e.target.value)} style={s.input} placeholder="https://..." />
+          <label style={s.label}>Theme Color</label>
+          <input type="color" value={themeColor} onChange={e => setThemeColor(e.target.value)} style={{ ...s.input, width: 60, padding: 2 }} />
+          <label style={s.label}>Discord Webhook URL</label>
+          <input value={discordWebhook} onChange={e => setDiscordWebhook(e.target.value)} style={s.input} placeholder="https://discord.com/api/webhooks/..." />
+          <div style={s.navRow}>
+            <button onClick={() => setWizStep(2)} disabled={!name.trim()} style={s.nextBtn}>Next →</button>
+          </div>
+        </div>
+      )}
+
+      {wizStep === 2 && (
+        <div style={s.card}>
+          <h2 style={s.cardTitle}>Scoring &amp; Categories</h2>
+          <label style={s.label}>Score Divisor</label>
+          <input type="number" value={scoreDivisor} onChange={e => setScoreDivisor(e.target.value)} style={s.input} min="1" />
+          <p style={s.hint}>Tokens awarded = floor(raw_score ÷ divisor). Raw score = sum of encounter counts × point values.</p>
+          <div style={s.twoCol}>
+            <div>
+              <label style={s.label}>Min Tokens/Day</label>
+              <input type="number" value={minTokens} onChange={e => setMinTokens(e.target.value)} style={s.input} min="0" />
+            </div>
+            <div>
+              <label style={s.label}>Max Tokens/Day (0 = no cap)</label>
+              <input type="number" value={maxTokens} onChange={e => setMaxTokens(e.target.value)} style={s.input} min="0" />
+            </div>
+          </div>
+          <label style={s.label}>Encounter Categories</label>
+          {categories.map((cat, i) => (
+            <div key={i} style={s.catRow}>
+              <input
+                value={cat.label}
+                onChange={e => updateCat(i, 'label', e.target.value)}
+                placeholder="Category name"
+                style={{ ...s.input, flex: 2 }}
+              />
+              <input
+                type="number"
+                value={cat.point_value}
+                onChange={e => updateCat(i, 'point_value', e.target.value)}
+                placeholder="Pts"
+                style={{ ...s.input, width: 70 }}
+              />
+              {categories.length > 1 && (
+                <button onClick={() => removeCat(i)} style={s.removeBtn}>✕</button>
+              )}
+            </div>
+          ))}
+          <button onClick={addCat} style={s.addCatBtn}>+ Add Category</button>
+          <div style={s.navRow}>
+            <button onClick={() => setWizStep(1)} style={s.backBtn}>← Back</button>
+            <button onClick={() => setWizStep(3)} style={s.nextBtn}>Next →</button>
+          </div>
+        </div>
+      )}
+
+      {wizStep === 3 && (
+        <div style={s.card}>
+          <h2 style={s.cardTitle}>Symbol Images <span style={{ color: '#666', fontSize: 13, fontWeight: 400 }}>(optional — set now or later in Edit)</span></h2>
+          <p style={s.hint}>Provide direct image URLs for each reel symbol. Leave blank to use emoji fallbacks.</p>
+          {SYMBOLS.map(sym => (
+            <div key={sym}>
+              <label style={s.label}>{SYMBOL_LABELS[sym]}</label>
+              <input
+                value={symbolImages[sym] || ''}
+                onChange={e => setSymbolImages(prev => ({ ...prev, [sym]: e.target.value }))}
+                style={s.input}
+                placeholder="https://..."
+              />
+            </div>
+          ))}
+          <div style={s.navRow}>
+            <button onClick={() => setWizStep(2)} style={s.backBtn}>← Back</button>
+            <button onClick={() => setWizStep(4)} style={s.nextBtn}>Next →</button>
+          </div>
+        </div>
+      )}
+
+      {wizStep === 4 && (
+        <div style={s.card}>
+          <h2 style={s.cardTitle}>Prize Store Setup <span style={{ color: '#666', fontSize: 13, fontWeight: 400 }}>(optional — add items now or later)</span></h2>
+          <p style={s.hint}>Each item costs Casino Prize Coins (CPC). Optionally awards Slot Tokens on purchase (for token bundle items).</p>
+          {storeItems.map((item, i) => (
+            <div key={i} style={{ ...s.catRow, flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+              <input
+                value={item.label}
+                onChange={e => updateStoreItem(i, 'label', e.target.value)}
+                placeholder="Item name"
+                style={{ ...s.input, flex: 2, minWidth: 120 }}
+              />
+              <input
+                type="number"
+                value={item.cost_cpc}
+                onChange={e => updateStoreItem(i, 'cost_cpc', e.target.value)}
+                placeholder="CPC cost"
+                style={{ ...s.input, width: 90 }}
+              />
+              <input
+                type="number"
+                value={item.quantity ?? ''}
+                onChange={e => updateStoreItem(i, 'quantity', e.target.value || null)}
+                placeholder="Qty (∞)"
+                style={{ ...s.input, width: 80 }}
+              />
+              <input
+                type="number"
+                value={item.pays_out_slot_tokens}
+                onChange={e => updateStoreItem(i, 'pays_out_slot_tokens', e.target.value)}
+                placeholder="Token payout"
+                style={{ ...s.input, width: 100 }}
+              />
+              <button onClick={() => removeStoreItem(i)} style={s.removeBtn}>✕</button>
+            </div>
+          ))}
+          <button onClick={addStoreItem} style={s.addCatBtn}>+ Add Store Item</button>
+          <div style={s.navRow}>
+            <button onClick={() => setWizStep(3)} style={s.backBtn}>← Back</button>
             <button onClick={handleCreate} disabled={saving} style={s.createBtn}>
               {saving ? 'Creating...' : 'Create Event'}
             </button>
