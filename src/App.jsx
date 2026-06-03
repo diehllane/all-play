@@ -26,6 +26,7 @@ import BoardGameScoreEntryPage from './pages/admin/BoardGameScoreEntryPage';
 import BoardGameEditPage from './pages/admin/BoardGameEditPage';
 import HighScoreEventDetailPage from './pages/admin/HighScoreEventDetailPage';
 import HighScoreScoreEntryPage from './pages/admin/HighScoreScoreEntryPage';
+import HighScoreEditPage from './pages/admin/HighScoreEditPage';
 import BingoEventDetailPage from './pages/admin/BingoEventDetailPage';
 import BingoScoreEntryPage from './pages/admin/BingoScoreEntryPage';
 import BingoEditPage from './pages/admin/BingoEditPage';
@@ -38,7 +39,6 @@ import PlayerPage from './pages/player/PlayerPage';
 
 const BASE = '/all-play';
 
-// Redirects to /login if not authenticated
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
   if (loading) return null;
@@ -46,7 +46,6 @@ function RequireAuth({ children }) {
   return children;
 }
 
-// Redirects to /admin if authenticated but not an owner
 function RequireOwner({ children }) {
   const { user, profile, loading } = useAuth();
   if (loading) return null;
@@ -55,7 +54,6 @@ function RequireOwner({ children }) {
   return children;
 }
 
-// Allows any authenticated user (player and above)
 function RequirePlayer({ children }) {
   const { user, loading } = useAuth();
   if (loading) return null;
@@ -107,6 +105,7 @@ export default function App() {
           {/* High Score admin */}
           <Route path="/admin/highscore/:id" element={<RequireAuth><HighScoreEventDetailPage /></RequireAuth>} />
           <Route path="/admin/highscore/:id/scores" element={<RequireAuth><HighScoreScoreEntryPage /></RequireAuth>} />
+          <Route path="/admin/highscore/:id/edit" element={<RequireAuth><HighScoreEditPage /></RequireAuth>} />
 
           {/* Bingo admin */}
           <Route path="/admin/bingo/:eventId" element={<RequireAuth><BingoEventDetailPage /></RequireAuth>} />
