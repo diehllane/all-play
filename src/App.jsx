@@ -11,6 +11,7 @@ import BracketPage from './pages/public/BracketPage';
 import BoardGamePage from './pages/public/BoardGamePage';
 import HighScorePage from './pages/public/HighScorePage';
 import BingoPage from './pages/public/BingoPage';
+import SlotsPage from './pages/public/SlotsPage';
 
 // Admin pages
 import LoginPage from './pages/admin/LoginPage';
@@ -28,6 +29,9 @@ import HighScoreScoreEntryPage from './pages/admin/HighScoreScoreEntryPage';
 import BingoEventDetailPage from './pages/admin/BingoEventDetailPage';
 import BingoScoreEntryPage from './pages/admin/BingoScoreEntryPage';
 import BingoEditPage from './pages/admin/BingoEditPage';
+import SlotsEventDetailPage from './pages/admin/SlotsEventDetailPage';
+import SlotsScoreEntryPage from './pages/admin/SlotsScoreEntryPage';
+import SlotsEditPage from './pages/admin/SlotsEditPage';
 import OwnerPage from './pages/admin/OwnerPage';
 import AuditLogPage from './pages/admin/AuditLogPage';
 import PlayerPage from './pages/player/PlayerPage';
@@ -73,6 +77,7 @@ export default function App() {
           <Route path="/board/:eventId" element={<BoardGamePage />} />
           <Route path="/highscore/:id" element={<HighScorePage />} />
           <Route path="/bingo/:eventId" element={<BingoPage />} />
+          <Route path="/slots/:eventId" element={<SlotsPage />} />
 
           {/* Auth */}
           <Route path="/login" element={<LoginPage />} />
@@ -107,6 +112,11 @@ export default function App() {
           <Route path="/admin/bingo/:eventId" element={<RequireAuth><BingoEventDetailPage /></RequireAuth>} />
           <Route path="/admin/bingo/:eventId/scores" element={<RequireAuth><BingoScoreEntryPage /></RequireAuth>} />
           <Route path="/admin/bingo/:eventId/edit" element={<RequireAuth><BingoEditPage /></RequireAuth>} />
+
+          {/* Slots admin */}
+          <Route path="/admin/slots/:eventId" element={<RequireAuth><SlotsEventDetailPage /></RequireAuth>} />
+          <Route path="/admin/slots/:eventId/scores" element={<RequireAuth><SlotsScoreEntryPage /></RequireAuth>} />
+          <Route path="/admin/slots/:eventId/edit" element={<RequireAuth><SlotsEditPage /></RequireAuth>} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
