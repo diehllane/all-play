@@ -491,8 +491,13 @@ export default function SlotsPage() {
               </div>
               <div style={styles.ruleRow}>
                 <span style={styles.ruleIcon}>2️⃣</span>
-                <span><strong>Two of a Kind</strong> — leftmost 2 reels match (reel 3 is the confirmer — near-miss counts!)</span>
+                <span><strong>Left Pair (1+2)</strong> — reels 1 and 2 match, reel 3 differs — higher payout</span>
               </div>
+              <div style={styles.ruleRow}>
+                <span style={styles.ruleIcon}>2️⃣</span>
+                <span><strong>Right Pair (2+3)</strong> — reels 2 and 3 match, reel 1 differs — lower payout</span>
+              </div>
+              <div style={{ fontSize: 11, opacity: 0.4, paddingLeft: 26 }}>Any consecutive pair pays. Three of a kind always takes priority.</div>
             </div>
 
             <table style={styles.table}>
@@ -519,7 +524,8 @@ export default function SlotsPage() {
                     <td style={{ ...styles.td, fontSize: 12 }}>
                       {row.category === 'jackpot' && <span style={{ color: '#FFD700' }}>Jackpot</span>}
                       {row.category === 'three_of_a_kind' && <span style={{ color: '#90CAF9' }}>3 of a Kind</span>}
-                      {row.category === 'two_of_a_kind' && <span style={{ color: '#aaa' }}>2 of a Kind <span style={{ opacity: 0.5 }}>(reels 1+2)</span></span>}
+                      {row.category === 'two_of_a_kind_left' && <span style={{ color: '#aaa' }}>Left Pair <span style={{ opacity: 0.5 }}>(reels 1+2)</span></span>}
+                      {row.category === 'two_of_a_kind_right' && <span style={{ color: '#888' }}>Right Pair <span style={{ opacity: 0.5 }}>(reels 2+3)</span></span>}
                     </td>
                     <td style={{ ...styles.tdNum, color: row.payout_cpc > 100 ? '#FFD700' : row.payout_cpc > 10 ? '#90CAF9' : '#ccc', fontWeight: 700 }}>
                       {row.payout_cpc.toLocaleString()}
@@ -529,7 +535,7 @@ export default function SlotsPage() {
               </tbody>
             </table>
             <div style={{ padding: '12px 0', fontSize: 12, opacity: 0.4, textAlign: 'center' }}>
-              ~87% RTP — per spin wager is 5 CPC (1 token). For every 100 CPC wagered (~20 spins), ~87 CPC is returned on average over a large sample. Reels spin independently; reel 3 has reduced rare-symbol frequency to create near-miss tension. Two of a kind pays on leftmost 2 reels only.
+              ~87% RTP — per spin wager is 5 CPC (1 token). For every 100 CPC wagered (~20 spins), ~87 CPC is returned on average over a large sample. ~23% win rate. Reels spin independently; reel 3 has reduced rare-symbol frequency to create near-miss tension.
             </div>
           </div>
         )}
