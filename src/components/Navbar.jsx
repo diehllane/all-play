@@ -4,10 +4,11 @@ import { useAuth } from '../contexts/AuthContext'
 export default function Navbar({ eventSlug, eventName }) {
   const { user, profile, signOut } = useAuth()
   const location = useLocation()
-  const isAdmin  = location.pathname.startsWith('/admin')
   const isOwner  = profile?.role === 'owner'
   const isRunner = profile?.role === 'event_runner' || isOwner
+  const isStaff  = isRunner || profile?.role === 'scorer'
   const isPlayer = profile?.role === 'player'
+  const isAdmin  = location.pathname.startsWith('/admin')
 
   return (
     <nav className="navbar">
@@ -48,11 +49,11 @@ export default function Navbar({ eventSlug, eventName }) {
                 </li>
               )}
 
-              {!isPlayer && (
+              {isStaff && (
                 <li>
                   <Link
                     to="/admin"
-                    className={isAdmin && !location.pathname.startsWith('/admin/owner') && !location.pathname.startsWith('/admin/audit') ? 'active' : ''}
+                    className={isAdmin && !location.pathname.startsWith('/admin/owner') && !location.pathname.startsWith('/admin/audit') && !location.pathname.startsWith('/admin/panel') ? 'active' : ''}
                   >
                     Dashboard
                   </Link>
@@ -60,11 +61,18 @@ export default function Navbar({ eventSlug, eventName }) {
               )}
 
               {isRunner && (
-                <li>
-                  <Link to="/admin/audit" className={location.pathname.startsWith('/admin/audit') ? 'active' : ''}>
-                    Audit Log
-                  </Link>
-                </li>
+                <>
+                  <li>
+                    <Link to="/admin/panel" className={location.pathname.startsWith('/admin/panel') ? 'active' : ''}>
+                      Staff Panel
+                    </Link>
+                  </li>
+                  <li>
+                    <Link to="/admin/audit" className={location.pathname.startsWith('/admin/audit') ? 'active' : ''}>
+                      Audit Log
+                    </Link>
+                  </li>
+                </>
               )}
 
               {isOwner && (
