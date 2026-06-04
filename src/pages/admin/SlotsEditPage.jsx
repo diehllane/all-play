@@ -14,7 +14,7 @@ const SYMBOL_IMAGES = {
   ultraball:  '/all-play/images/slots/ultraball.png',
   pikachu:    '/all-play/images/slots/pikachu.png',
   eevee:      '/all-play/images/slots/eevee.png',
-  rare_candy: '/all-play/images/slots/rare_candy.png',
+  rare_candy: '/all-play/images/slots/rarecandy.png',
   potion:     '/all-play/images/slots/potion.png',
   berry:      '/all-play/images/slots/berry.png',
 };
