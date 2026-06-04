@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -14,9 +14,18 @@ const SYMBOL_LABELS = {
   rare_candy: 'Rare Candy', potion: 'Potion', berry: 'Berry',
 };
 
-const SYMBOL_EMOJIS = {
-  masterball: '🟣', pokeball: '🔴', greatball: '🔵', ultraball: '🟡',
-  pikachu: '⚡', eevee: '🦊', rare_candy: '🍬', potion: '🧪', berry: '🫐',
+// Hardcoded symbol images served from the repo's public/images/slots/ folder.
+// These are used on the reels and in the pay table.
+const SYMBOL_IMAGES = {
+  masterball: '/all-play/images/slots/masterball.png',
+  pokeball:   '/all-play/images/slots/pokeball.png',
+  greatball:  '/all-play/images/slots/greatball.png',
+  ultraball:  '/all-play/images/slots/ultraball.png',
+  pikachu:    '/all-play/images/slots/pikachu.png',
+  eevee:      '/all-play/images/slots/eevee.png',
+  rare_candy: '/all-play/images/slots/rare_candy.png',
+  potion:     '/all-play/images/slots/potion.png',
+  berry:      '/all-play/images/slots/berry.png',
 };
 
 export default function SlotsPage() {
@@ -122,17 +131,13 @@ export default function SlotsPage() {
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'Spin failed');
 
-      // Hold animation for at least 1.8s then snap reels
       await new Promise(r => setTimeout(r, 1800));
       setReels(result.reels);
       setLastOutcome(result);
       setSpinState('result_shown');
 
-      // Refresh player balances
       await loadMyPlayer();
       if (myPlayer) await loadRecentSpins(myPlayer.id);
-
-      // Refresh leaderboard
       await loadAll();
     } catch (e) {
       setSpinError(e.message);
@@ -169,18 +174,13 @@ export default function SlotsPage() {
   };
 
   // ─── Symbol rendering ─────────────────────────────────────────
-  const getSymbolImg = (sym) => {
-    const custom = config?.symbol_images?.[sym];
-    if (custom) return <img src={custom} alt={sym} style={{ width: 48, height: 48, objectFit: 'contain' }} />;
-    return <span style={{ fontSize: 40, lineHeight: 1 }}>{ALL_SYMBOLS.includes(sym) ? getDefaultEmoji(sym) : '❓'}</span>;
+  // Always use the hardcoded repo images; no custom URL fallback for reels.
+  const getSymbolImg = (sym, size = 48) => {
+    const src = SYMBOL_IMAGES[sym];
+    if (src) return <img src={src} alt={sym} style={{ width: size, height: size, objectFit: 'contain' }} />;
+    return <span style={{ fontSize: size * 0.8, lineHeight: 1 }}>❓</span>;
   };
 
-  const getDefaultEmoji = (sym) => {
-    const emojis = { masterball: '🟣', pokeball: '🔴', greatball: '🔵', ultraball: '🟡', pikachu: '⚡', eevee: '🦊', rare_candy: '🍬', potion: '🧪', berry: '🫐' };
-    return emojis[sym] || '❓';
-  };
-
-  // ─── Theme color ──────────────────────────────────────────────
   const theme = config?.theme_color || '#c62828';
 
   if (loading) return <div style={styles.center}>Loading…</div>;
@@ -190,7 +190,7 @@ export default function SlotsPage() {
   const myTokens = myPlayer?.slot_tokens ?? 0;
   const myCpc = myPlayer?.casino_prize_coins ?? 0;
   const isWin = lastOutcome && lastOutcome.payout_cpc > 0;
-  const isJackpot = lastOutcome?.payout_cpc >= 8100;
+  const isJackpot = lastOutcome?.payout_cpc >= 6809;
 
   return (
     <div style={{ ...styles.page, background: '#0a0a0f' }}>
@@ -244,7 +244,6 @@ export default function SlotsPage() {
         {/* ═══════════════ SLOT MACHINE ═══════════════════ */}
         {activeTab === 'machine' && (
           <div style={styles.machineWrap}>
-            {/* Cabinet */}
             <div style={{ ...styles.cabinet, borderColor: theme, boxShadow: `0 0 40px ${theme}33, inset 0 0 60px rgba(0,0,0,0.5)` }}>
               <div style={{ ...styles.cabinetTop, background: theme }}>
                 <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase' }}>
@@ -263,7 +262,7 @@ export default function SlotsPage() {
                     background: isWin ? `rgba(${hexToRgb(theme)},0.1)` : 'rgba(0,0,0,0.5)',
                   }}>
                     <div style={styles.reelInner}>
-                      {getSymbolImg(sym)}
+                      {getSymbolImg(sym, 48)}
                     </div>
                     <div style={{ ...styles.reelLabel, color: isSpinning ? 'transparent' : '#ccc' }}>
                       {SYMBOL_LABELS[sym] || sym}
@@ -272,10 +271,8 @@ export default function SlotsPage() {
                 ))}
               </div>
 
-              {/* Payline */}
               <div style={{ ...styles.payline, borderColor: `${theme}88` }} />
 
-              {/* Result banner */}
               <div style={styles.resultBanner}>
                 {isSpinning && <div style={{ color: '#888', fontSize: 14, letterSpacing: 2 }}>SPINNING…</div>}
                 {!isSpinning && lastOutcome && (
@@ -294,7 +291,6 @@ export default function SlotsPage() {
                 {spinError && <div style={{ color: '#f44', fontSize: 13 }}>{spinError}</div>}
               </div>
 
-              {/* Spin button */}
               <div style={{ textAlign: 'center', paddingBottom: 20 }}>
                 <button
                   onClick={handleSpin}
@@ -320,7 +316,9 @@ export default function SlotsPage() {
                   <div key={i} style={styles.spinRow}>
                     <div style={styles.spinReels}>
                       {spin.reels?.map((s, j) => (
-                        <span key={j} style={{ fontSize: 18 }}>{getDefaultEmoji(s)}</span>
+                        <span key={j} style={{ display: 'inline-flex', alignItems: 'center' }}>
+                          {getSymbolImg(s, 22)}
+                        </span>
                       ))}
                     </div>
                     <div style={{ color: spin.payout_cpc > 0 ? '#4CAF50' : '#555', fontWeight: 600, minWidth: 60, textAlign: 'right' }}>
@@ -486,7 +484,6 @@ export default function SlotsPage() {
               <span style={{ fontSize: 12, color: '#888' }}>~87% RTP · Reel-driven · Near-miss reel 3</span>
             </div>
 
-            {/* Win condition rules */}
             <div style={styles.rulesBox}>
               <div style={styles.ruleRow}>
                 <span style={styles.ruleIcon}>3️⃣</span>
@@ -495,10 +492,6 @@ export default function SlotsPage() {
               <div style={styles.ruleRow}>
                 <span style={styles.ruleIcon}>2️⃣</span>
                 <span><strong>Two of a Kind</strong> — leftmost 2 reels match (reel 3 is the confirmer — near-miss counts!)</span>
-              </div>
-              <div style={styles.ruleRow}>
-                <span style={styles.ruleIcon}>✨</span>
-                <span><strong>Scatter</strong> — symbol appears on any reel, pays regardless of position</span>
               </div>
             </div>
 
@@ -517,19 +510,16 @@ export default function SlotsPage() {
                       {row.is_jackpot && '🏆 '}{row.label}
                     </td>
                     <td style={styles.td}>
-                      {(row.symbols || []).map((s, i) => (
-                        <span key={i} style={{ fontSize: 18, marginRight: 2 }}>
-                          {config?.symbol_images?.[s]
-                            ? <img src={config.symbol_images[s]} style={{ width: 20, height: 20, objectFit: 'contain', verticalAlign: 'middle' }} />
-                            : getDefaultEmoji(s)}
-                        </span>
-                      ))}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        {(row.symbols || []).map((s, i) => (
+                          <span key={i}>{getSymbolImg(s, 24)}</span>
+                        ))}
+                      </div>
                     </td>
                     <td style={{ ...styles.td, fontSize: 12 }}>
                       {row.category === 'jackpot' && <span style={{ color: '#FFD700' }}>Jackpot</span>}
                       {row.category === 'three_of_a_kind' && <span style={{ color: '#90CAF9' }}>3 of a Kind</span>}
                       {row.category === 'two_of_a_kind' && <span style={{ color: '#aaa' }}>2 of a Kind <span style={{ opacity: 0.5 }}>(reels 1+2)</span></span>}
-                      {row.category === 'scatter' && <span style={{ color: '#ce93d8' }}>Scatter (any reel)</span>}
                     </td>
                     <td style={{ ...styles.tdNum, color: row.payout_cpc > 100 ? '#FFD700' : row.payout_cpc > 10 ? '#90CAF9' : '#ccc', fontWeight: 700 }}>
                       {row.payout_cpc.toLocaleString()}
@@ -556,7 +546,6 @@ export default function SlotsPage() {
   );
 }
 
-// Utility
 function hexToRgb(hex) {
   const r = parseInt(hex.slice(1,3),16);
   const g = parseInt(hex.slice(3,5),16);
@@ -588,7 +577,7 @@ const styles = {
   spinBtn: { padding: '14px 48px', fontSize: 16, fontWeight: 800, color: '#fff', border: 'none', borderRadius: 30, letterSpacing: 1, transition: 'all 0.2s' },
   recentWrap: { width: '100%', maxWidth: 520, background: '#111', borderRadius: 10, padding: 16 },
   spinRow: { display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', borderBottom: '1px solid #1a1a1a' },
-  spinReels: { display: 'flex', gap: 4, flex: 1 },
+  spinReels: { display: 'flex', gap: 6, flex: 1, alignItems: 'center' },
   panelWrap: { width: '100%' },
   panelHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
   sectionTitle: { fontSize: 18, fontWeight: 700 },
