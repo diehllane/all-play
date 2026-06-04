@@ -25,9 +25,10 @@ function parseCSV(text) {
 }
 
 function downloadCSV(filename, headers, rows) {
+  const BOM = '\uFEFF';
   const escape = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const csv = [headers.join(','), ...rows.map(r => headers.map(h => escape(r[h])).join(','))].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
+  const csv = BOM + [headers.join(','), ...rows.map(r => headers.map(h => escape(r[h])).join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
@@ -98,6 +99,22 @@ function CsvImporter({ onImport, sampleHeaders, sampleRow, label, themeColor }) 
   );
 }
 
+// ── Line value key definitions ────────────────────────────
+const LINE_KEYS = [
+  { key: 'row1_value', label: 'Row 1' },
+  { key: 'row2_value', label: 'Row 2' },
+  { key: 'row3_value', label: 'Row 3' },
+  { key: 'row4_value', label: 'Row 4' },
+  { key: 'row5_value', label: 'Row 5' },
+  { key: 'col1_value', label: 'Column 1' },
+  { key: 'col2_value', label: 'Column 2' },
+  { key: 'col3_value', label: 'Column 3' },
+  { key: 'col4_value', label: 'Column 4' },
+  { key: 'col5_value', label: 'Column 5' },
+  { key: 'diag1_value', label: 'Diagonal ↘' },
+  { key: 'diag2_value', label: 'Diagonal ↙' },
+];
+
 // ── Default 25 squares ────────────────────────────────────
 function defaultSquares(hasFreeSpace) {
   return Array.from({ length: 25 }, (_, i) => ({
@@ -110,11 +127,11 @@ function defaultSquares(hasFreeSpace) {
 }
 
 // ── Board Builder ─────────────────────────────────────────
-function BoardBuilder({ squares, setSquares, config, onSaveSquares, saving, onImport, onExport }) {
+function BoardBuilder({ squares, setSquares, config, setConfig, onSaveSquares, saving, onImportSquares, onExportSquares, onImportLineValues, onExportLineValues, themeColor, eventId }) {
   const [dragging, setDragging] = useState(null);
   const [over, setOver] = useState(null);
   const [editingIdx, setEditingIdx] = useState(null);
-  const themeColor = config.theme_color || '#c62828';
+  const tc = themeColor || '#c62828';
 
   const handleDrop = (pos) => {
     if (dragging === null || dragging === pos) { setDragging(null); setOver(null); return; }
@@ -133,24 +150,27 @@ function BoardBuilder({ squares, setSquares, config, onSaveSquares, saving, onIm
   const updateSquare = (position, field, value) =>
     setSquares(prev => prev.map(s => s.position === position ? { ...s, [field]: value } : s));
 
+  const setLineValue = (key, val) => setConfig(p => ({ ...p, [key]: val }));
+
   return (
     <div>
+      {/* ── Tiles section ── */}
       <div style={{ marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
         <span style={{ fontSize: 13, color: 'var(--text-dim)' }}>Drag tiles to rearrange. Click a tile to edit.</span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
           <CsvImporter
             label="bingo_tiles"
-            themeColor={themeColor}
+            themeColor={tc}
             sampleHeaders={['position', 'label', 'point_value', 'description', 'is_free_space']}
             sampleRow={{ position: 0, label: 'Catch a Shiny', point_value: 10, description: '', is_free_space: false }}
-            onImport={onImport}
+            onImport={onImportSquares}
           />
-          <button onClick={onExport}
+          <button onClick={onExportSquares}
             style={{ background: 'none', border: '1px solid #333', color: '#666', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>
             ↓ Export CSV
           </button>
           <button onClick={onSaveSquares} disabled={saving}
-            style={{ background: themeColor, color: 'var(--text)', border: 'none', borderRadius: 6, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            style={{ background: tc, color: 'var(--text)', border: 'none', borderRadius: 6, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
             {saving ? 'Saving...' : 'Save Board'}
           </button>
         </div>
@@ -162,7 +182,7 @@ function BoardBuilder({ squares, setSquares, config, onSaveSquares, saving, onIm
         {[0,1,2,3,4].map(c => (
           <div key={c} style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 600 }}>Col {c+1}</div>
-            <div style={{ fontSize: 10, color: themeColor }}>{config[`col${c+1}_value`] > 0 ? `${config[`col${c+1}_value`]}pts` : ''}</div>
+            <div style={{ fontSize: 10, color: tc }}>{(config[`col${c+1}_value`] ?? 0) > 0 ? `${config[`col${c+1}_value`]}pts` : ''}</div>
           </div>
         ))}
       </div>
@@ -171,7 +191,7 @@ function BoardBuilder({ squares, setSquares, config, onSaveSquares, saving, onIm
         <div key={row} style={{ display: 'grid', gridTemplateColumns: '24px repeat(5, 1fr)', gap: 4, marginBottom: 4 }}>
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'flex-end', paddingRight: 4 }}>
             <div style={{ fontSize: 11, color: 'var(--text-dim)', fontWeight: 600 }}>R{row+1}</div>
-            <div style={{ fontSize: 10, color: themeColor }}>{config[`row${row+1}_value`] > 0 ? `${config[`row${row+1}_value`]}pts` : ''}</div>
+            <div style={{ fontSize: 10, color: tc }}>{(config[`row${row+1}_value`] ?? 0) > 0 ? `${config[`row${row+1}_value`]}pts` : ''}</div>
           </div>
           {[0,1,2,3,4].map(col => {
             const pos = row * 5 + col;
@@ -186,18 +206,18 @@ function BoardBuilder({ squares, setSquares, config, onSaveSquares, saving, onIm
                 onDrop={() => handleDrop(pos)}
                 onClick={() => setEditingIdx(isEditing ? null : pos)}
                 style={{
-                  border: `2px solid ${over === pos ? themeColor : isEditing ? themeColor : 'var(--border)'}`,
+                  border: `2px solid ${over === pos ? tc : isEditing ? tc : 'var(--border)'}`,
                   borderRadius: 6,
-                  background: sq.is_free_space ? `${themeColor}33` : isEditing ? `${themeColor}18` : 'var(--surface-raised)',
+                  background: sq.is_free_space ? `${tc}33` : isEditing ? `${tc}18` : 'var(--surface-raised)',
                   padding: 8, cursor: 'grab',
                   opacity: dragging === pos ? 0.4 : 1,
                   minHeight: 80, transition: 'border-color 0.15s', position: 'relative',
                 }}>
                 {sq.is_free_space && (
-                  <div style={{ position: 'absolute', top: 4, right: 4, background: themeColor, color: 'var(--text)', fontSize: 9, fontWeight: 700, borderRadius: 3, padding: '1px 4px' }}>FREE</div>
+                  <div style={{ position: 'absolute', top: 4, right: 4, background: tc, color: 'var(--text)', fontSize: 9, fontWeight: 700, borderRadius: 3, padding: '1px 4px' }}>FREE</div>
                 )}
                 <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)', lineHeight: 1.3, marginBottom: 4 }}>{sq.label || '(empty)'}</div>
-                {!sq.is_free_space && <div style={{ fontSize: 11, color: themeColor, fontWeight: 700 }}>{sq.point_value}pts</div>}
+                {!sq.is_free_space && <div style={{ fontSize: 11, color: tc, fontWeight: 700 }}>{sq.point_value}pts</div>}
 
                 {isEditing && (
                   <div onClick={e => e.stopPropagation()} style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -237,14 +257,47 @@ function BoardBuilder({ squares, setSquares, config, onSaveSquares, saving, onIm
       ))}
 
       <div style={{ marginTop: 8, display: 'flex', gap: 20, fontSize: 12, color: 'var(--text-dim)' }}>
-        {config.diag1_value > 0 && <span>↘ Diagonal: {config.diag1_value}pts</span>}
-        {config.diag2_value > 0 && <span>↙ Diagonal: {config.diag2_value}pts</span>}
+        {(config.diag1_value ?? 0) > 0 && <span>↘ Diagonal: {config.diag1_value}pts</span>}
+        {(config.diag2_value ?? 0) > 0 && <span>↙ Diagonal: {config.diag2_value}pts</span>}
+      </div>
+
+      {/* ── Line Values section ── */}
+      <div style={{ marginTop: 36, borderTop: '1px solid var(--border)', paddingTop: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: 'var(--text)', textTransform: 'uppercase', letterSpacing: 1 }}>Bingo Line Values</h3>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+            <CsvImporter
+              label="bingo_line_values"
+              themeColor={tc}
+              sampleHeaders={['line', 'value']}
+              sampleRow={{ line: 'row1', value: 50 }}
+              onImport={onImportLineValues}
+            />
+            <button onClick={onExportLineValues}
+              style={{ background: 'none', border: '1px solid #333', color: '#666', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>
+              ↓ Export CSV
+            </button>
+          </div>
+        </div>
+        <p style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 16 }}>
+          Bonus points awarded when a player/team completes a line. Set to 0 to disable a line bonus. CSV keys: row1–row5, col1–col5, diag1, diag2.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
+          {LINE_KEYS.map(({ key, label }) => (
+            <div key={key}>
+              <label style={{ display: 'block', fontSize: 11, color: 'var(--text-dim)', marginBottom: 4 }}>{label}</label>
+              <input type="number" min={0} value={config[key] ?? 0}
+                onChange={e => setLineValue(key, Number(e.target.value))}
+                style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 6, padding: '7px 10px', fontSize: 14, width: 100 }} />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 
-// ── Config Tab ─────────────────────────────────────────────
+// ── Config Tab (no line values here anymore) ───────────────
 function ConfigTab({ config, setConfig, onSave, saving }) {
   const themeColor = config.theme_color || '#c62828';
   const field = (key, label, type = 'text') => (
@@ -252,13 +305,6 @@ function ConfigTab({ config, setConfig, onSave, saving }) {
       <label style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 4 }}>{label}</label>
       <input type={type} value={config[key] ?? ''} onChange={e => setConfig(p => ({ ...p, [key]: type === 'number' ? Number(e.target.value) : e.target.value }))}
         style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 6, padding: '8px 12px', fontSize: 14, width: '100%', maxWidth: 360 }} />
-    </div>
-  );
-  const lineValueField = (key, label) => (
-    <div style={{ marginBottom: 10 }}>
-      <label style={{ display: 'block', fontSize: 12, color: 'var(--text-dim)', marginBottom: 4 }}>{label}</label>
-      <input type="number" min={0} value={config[key] ?? 0} onChange={e => setConfig(p => ({ ...p, [key]: Number(e.target.value) }))}
-        style={{ background: '#1a1a1a', border: '1px solid #444', color: '#fff', borderRadius: 6, padding: '7px 10px', fontSize: 14, width: 100 }} />
     </div>
   );
 
@@ -292,14 +338,6 @@ function ConfigTab({ config, setConfig, onSave, saving }) {
           <option value="floor" style={{ background: '#1a1a1a', color: '#fff' }}>Floor</option>
           <option value="round" style={{ background: '#1a1a1a', color: '#fff' }}>Round</option>
         </select>
-      </div>
-
-      <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginTop: 24, marginBottom: 16, textTransform: 'uppercase', letterSpacing: 1 }}>Bingo Line Values</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8 }}>
-        {[1,2,3,4,5].map(i => lineValueField(`row${i}_value`, `Row ${i}`))}
-        {[1,2,3,4,5].map(i => lineValueField(`col${i}_value`, `Column ${i}`))}
-        {lineValueField('diag1_value', 'Diagonal ↘')}
-        {lineValueField('diag2_value', 'Diagonal ↙')}
       </div>
 
       <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginTop: 24, marginBottom: 16, textTransform: 'uppercase', letterSpacing: 1 }}>Settings</h3>
@@ -486,8 +524,15 @@ export default function BingoEditPage() {
     await logAudit({ actor: profile, eventType: 'config_change', action: `Saved bingo config for "${eventName}"`, eventId, eventName });
   };
 
+  // saveSquares also saves line values (they live in bingo_config)
   const saveSquares = async () => {
     setSaving(true);
+    // Save line values to bingo_config first
+    const lineValueUpdate = {};
+    LINE_KEYS.forEach(({ key }) => { lineValueUpdate[key] = config[key] ?? 0; });
+    const { error: cfgErr } = await supabase.from('bingo_config').update(lineValueUpdate).eq('event_id', eventId);
+    if (cfgErr) { setSaving(false); return flash(cfgErr.message, true); }
+
     await supabase.from('bingo_squares').delete().eq('event_id', eventId);
     const toInsert = squares.map(({ id, _isNew, ...s }) => ({ ...s, event_id: eventId }));
     const { error } = await supabase.from('bingo_squares').insert(toInsert);
@@ -495,7 +540,7 @@ export default function BingoEditPage() {
     if (error) return flash(error.message, true);
     const { data } = await supabase.from('bingo_squares').select('*').eq('event_id', eventId).order('position');
     setSquares(data ?? []);
-    flash('Board saved.');
+    flash('Board and line values saved.');
     await logAudit({ actor: profile, eventType: 'config_change', action: `Saved bingo board for "${eventName}"`, eventId, eventName });
   };
 
@@ -560,6 +605,33 @@ export default function BingoEditPage() {
       `bingo_squares_${eventId}.csv`,
       ['position', 'label', 'point_value', 'description', 'is_free_space'],
       squares.map(s => ({ position: s.position, label: s.label, point_value: s.point_value, description: s.description ?? '', is_free_space: s.is_free_space }))
+    );
+  };
+
+  // ── Line values CSV import/export ─────────────────────────
+  const importLineValues = async (rows) => {
+    let imported = 0, errors = [];
+    const validKeys = new Set(LINE_KEYS.map(({ key }) => key.replace('_value', '')));
+    const updates = {};
+    for (const row of rows) {
+      const line = row['line']?.trim().toLowerCase();
+      if (!line || !validKeys.has(line)) { errors.push(`Unknown line: "${row['line']}"`); continue; }
+      const val = parseFloat(row['value']);
+      if (isNaN(val)) { errors.push(`Invalid value for ${line}: "${row['value']}"`); continue; }
+      updates[`${line}_value`] = val;
+      imported++;
+    }
+    // Merge into config state (will be committed when runner clicks Save Board)
+    setConfig(prev => ({ ...prev, ...updates }));
+    if (errors.length) return { error: true, text: `${imported} merged, ${errors.length} errors: ${errors[0]}. Click Save Board to commit.` };
+    return { text: `${imported} line values merged. Click Save Board to commit.` };
+  };
+
+  const exportLineValues = () => {
+    downloadCSV(
+      `bingo_line_values_${eventId}.csv`,
+      ['line', 'value'],
+      LINE_KEYS.map(({ key, label }) => ({ line: key.replace('_value', ''), value: config[key] ?? 0 }))
     );
   };
 
@@ -679,9 +751,13 @@ export default function BingoEditPage() {
 
         {tab === 'board' && (
           <BoardBuilder
-            squares={squares} setSquares={setSquares} config={config}
+            squares={squares} setSquares={setSquares}
+            config={config} setConfig={setConfig}
+            themeColor={themeColor}
             onSaveSquares={saveSquares} saving={saving}
-            onImport={importSquares} onExport={exportSquares}
+            onImportSquares={importSquares} onExportSquares={exportSquares}
+            onImportLineValues={importLineValues} onExportLineValues={exportLineValues}
+            eventId={eventId}
           />
         )}
         {tab === 'config' && (

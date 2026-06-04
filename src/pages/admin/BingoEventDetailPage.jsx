@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
+import { exportBingoXLSX } from '../../lib/bingoExport';
 
 export default function BingoEventDetailPage() {
   const { eventId } = useParams();
@@ -16,8 +17,12 @@ export default function BingoEventDetailPage() {
   const [commits, setCommits] = useState([]);
   const [scores, setScores] = useState([]);
   const [squares, setSquares] = useState([]);
+  const [scoreEntries, setScoreEntries] = useState([]);
+  const [linesCompleted, setLinesCompleted] = useState([]);
+  const [dailyScores, setDailyScores] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [msg, setMsg] = useState(null);
 
   const flash = (text, isError = false) => { setMsg({ text, isError }); setTimeout(() => setMsg(null), 5000); };
@@ -31,6 +36,9 @@ export default function BingoEventDetailPage() {
       { data: cms },
       { data: scs },
       { data: sqs },
+      { data: entries },
+      { data: lines },
+      { data: daily },
     ] = await Promise.all([
       supabase.from('events').select('*').eq('id', eventId).single(),
       supabase.from('bingo_config').select('*').eq('event_id', eventId).single(),
@@ -39,6 +47,9 @@ export default function BingoEventDetailPage() {
       supabase.from('bingo_commits').select('*').eq('event_id', eventId).order('day_number', { ascending: false }),
       supabase.from('bingo_scores').select('*').eq('event_id', eventId),
       supabase.from('bingo_squares').select('*').eq('event_id', eventId).order('position'),
+      supabase.from('bingo_score_entries').select('*').eq('event_id', eventId).order('day_number'),
+      supabase.from('bingo_lines_completed').select('*').eq('event_id', eventId).order('day_number'),
+      supabase.from('bingo_daily_scores').select('*').eq('event_id', eventId),
     ]);
     setEvent(ev);
     setConfig(cfg);
@@ -47,6 +58,9 @@ export default function BingoEventDetailPage() {
     setCommits(cms ?? []);
     setScores(scs ?? []);
     setSquares(sqs ?? []);
+    setScoreEntries(entries ?? []);
+    setLinesCompleted(lines ?? []);
+    setDailyScores(daily ?? []);
     setLoading(false);
   }, [eventId]);
 
@@ -68,6 +82,17 @@ export default function BingoEventDetailPage() {
     await supabase.from('bingo_config').delete().eq('event_id', eventId);
     await supabase.from('events').delete().eq('id', eventId);
     navigate('/admin');
+  };
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      exportBingoXLSX(event, config, players, teams, squares, scoreEntries, commits, scores, linesCompleted, dailyScores);
+    } catch (e) {
+      flash('Export failed: ' + e.message, true);
+    } finally {
+      setExporting(false);
+    }
   };
 
   if (loading) return <div style={{ padding: 40, color: 'var(--text-dim)' }}>Loading...</div>;
@@ -107,6 +132,10 @@ export default function BingoEventDetailPage() {
           <Link to={`/admin/bingo/${eventId}/edit`} style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
             Edit Board & Config
           </Link>
+          <button onClick={handleExport} disabled={exporting}
+            style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            {exporting ? 'Exporting...' : '⬇ Export XLSX'}
+          </button>
           {canManage && (
             <button onClick={handleDelete} disabled={deleting}
               style={{ marginLeft: 'auto', background: 'none', border: '1px solid #ef4444', color: '#ef4444', borderRadius: 7, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>

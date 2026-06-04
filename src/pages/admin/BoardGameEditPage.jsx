@@ -40,10 +40,12 @@ function parseCSV(text) {
   return { headers, rows };
 }
 
+// UTF-8 BOM ensures Excel opens the file correctly and renders emoji in the icon column.
 function downloadCSV(filename, headers, rows) {
+  const BOM = '\uFEFF';
   const escape = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const csv = [headers.join(','), ...rows.map(r => headers.map(h => escape(r[h])).join(','))].join('\n');
-  const blob = new Blob([csv], { type: 'text/csv' });
+  const csv = BOM + [headers.join(','), ...rows.map(r => headers.map(h => escape(r[h])).join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
@@ -207,11 +209,13 @@ export default function BoardGameEditPage() {
     const parsed = rows.map(row => {
       const num = parseInt(row['square_number']);
       if (isNaN(num)) { errors.push(`Invalid square_number: "${row['square_number']}"`); return null; }
+      // Strip surrogate-pair emoji that survive as garbled chars when Excel re-saves without UTF-8
+      const sanitizeIcon = v => v ? v.trim().replace(/[\uD800-\uDFFF]/g, '') || null : null;
       return {
         square_number: num,
         type: row['type']?.trim() || 'flavor',
         label: row['label']?.trim() || null,
-        icon: row['icon']?.trim() || null,
+        icon: sanitizeIcon(row['icon']),
         jump_to: row['jump_to'] ? parseInt(row['jump_to']) : null,
         move_amount: row['move_amount'] ? parseInt(row['move_amount']) : null,
         description: row['description']?.trim() || null,
@@ -220,7 +224,7 @@ export default function BoardGameEditPage() {
       };
     }).filter(Boolean);
 
-    // Merge into existing squares by square_number, upsert
+    // Merge into existing squares by square_number
     setSquares(prev => {
       const map = Object.fromEntries(prev.map(s => [s.square_number, s]));
       for (const sq of parsed) { map[sq.square_number] = { ...map[sq.square_number], ...sq }; imported++; }
