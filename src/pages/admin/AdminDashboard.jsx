@@ -9,8 +9,9 @@ const ACC = '#c62828';
 
 export default function AdminDashboard() {
   const { profile } = useAuth();
-  const isOwner = profile?.role === 'owner';
-  const canCreateEvents = isOwner || profile?.role === 'event_runner';
+  const isOwner      = profile?.role === 'owner';
+  const isRunner     = isOwner || profile?.role === 'event_runner';
+  const canCreateEvents = isRunner;
 
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -28,10 +29,10 @@ export default function AdminDashboard() {
   }, []);
 
   const boardGames = events.filter(e => e.event_type === 'board_game');
-  const allPlay = events.filter(e => e.event_type === 'all_play');
-  const highScore = events.filter(e => e.event_type === 'high_score');
-  const bingo = events.filter(e => ['bingo_solo', 'bingo_team'].includes(e.event_type));
-  const slots = events.filter(e => e.event_type === 'slots');
+  const allPlay    = events.filter(e => e.event_type === 'all_play');
+  const highScore  = events.filter(e => e.event_type === 'high_score');
+  const bingo      = events.filter(e => ['bingo_solo', 'bingo_team'].includes(e.event_type));
+  const slots      = events.filter(e => e.event_type === 'slots');
 
   return (
     <div style={s.page}>
@@ -39,6 +40,9 @@ export default function AdminDashboard() {
         <h1 style={s.title}>Admin Dashboard</h1>
         <div style={s.headerRight}>
           <span style={s.roleTag}>{profile?.role}</span>
+          {isRunner && (
+            <Link to="/admin/panel" style={s.panelBtn}>👥 Staff Panel</Link>
+          )}
           {isOwner && (
             <Link to="/admin/owner" style={s.ownerBtn}>⚙ Owner Panel</Link>
           )}
@@ -52,11 +56,14 @@ export default function AdminDashboard() {
         <div style={s.loading}>Loading events...</div>
       ) : (
         <>
-          <EventSection title="🏆 High Score Events" events={highScore} type="high_score" />
-          <EventSection title="🎲 Board Game Events" events={boardGames} type="board_game" />
-          <EventSection title="⚔️ All-Play Tournaments" events={allPlay} type="all_play" />
-          <EventSection title="🎯 Bingo Events" events={bingo} type="bingo" />
-          <EventSection title="🎰 Slots Events" events={slots} type="slots" />
+          <EventSection title="🏆 High Score Events"     events={highScore}  type="high_score" />
+          <EventSection title="🎲 Board Game Events"     events={boardGames} type="board_game" />
+          <EventSection title="⚔️ All-Play Tournaments"  events={allPlay}    type="all_play" />
+          <EventSection title="🎯 Bingo Events"          events={bingo}      type="bingo" />
+          <EventSection title="🎰 Slots Events"          events={slots}      type="slots" />
+          {events.length === 0 && (
+            <div style={s.empty}>No events yet. {canCreateEvents ? 'Create one to get started.' : 'Check back soon.'}</div>
+          )}
         </>
       )}
     </div>
@@ -76,43 +83,46 @@ function EventSection({ title, events, type }) {
 }
 
 function EventCard({ event, type }) {
+  const { profile } = useAuth();
+  const isRunner = profile?.role === 'event_runner' || profile?.role === 'owner';
+
   const statusColor = {
     active: '#4caf50',
     playoffs: '#ff9800',
     completed: '#888',
   }[event.status] || '#888';
 
-  const isBingo = type === 'bingo';
-  const isSlots = type === 'slots';
+  const isBingo     = type === 'bingo';
+  const isSlots     = type === 'slots';
   const isHighScore = type === 'high_score';
 
   const adminPath =
-    isSlots     ? `/admin/slots/${event.id}` :
-    isBingo     ? `/admin/bingo/${event.id}` :
+    isSlots           ? `/admin/slots/${event.id}` :
+    isBingo           ? `/admin/bingo/${event.id}` :
     type === 'board_game' ? `/admin/board/${event.id}` :
-    isHighScore ? `/admin/highscore/${event.id}` :
+    isHighScore       ? `/admin/highscore/${event.id}` :
     `/admin/events/${event.id}`;
 
   const publicPath =
-    isSlots     ? `/slots/${event.id}` :
-    isBingo     ? `/bingo/${event.id}` :
+    isSlots           ? `/slots/${event.id}` :
+    isBingo           ? `/bingo/${event.id}` :
     type === 'board_game' ? `/board/${event.id}` :
-    isHighScore ? `/highscore/${event.id}` :
+    isHighScore       ? `/highscore/${event.id}` :
     `/events/${event.slug}/standings`;
 
   const scorePath =
-    isSlots     ? `/admin/slots/${event.id}/scores` :
-    isBingo     ? `/admin/bingo/${event.id}/scores` :
+    isSlots           ? `/admin/slots/${event.id}/scores` :
+    isBingo           ? `/admin/bingo/${event.id}/scores` :
     type === 'board_game' ? `/admin/board/${event.id}/scores` :
-    isHighScore ? `/admin/highscore/${event.id}/scores` :
+    isHighScore       ? `/admin/highscore/${event.id}/scores` :
     `/admin/events/${event.id}/scores`;
 
   const editPath =
-    isSlots     ? `/admin/slots/${event.id}/edit` :
-    isBingo     ? `/admin/bingo/${event.id}/edit` :
+    isSlots           ? `/admin/slots/${event.id}/edit` :
+    isBingo           ? `/admin/bingo/${event.id}/edit` :
     type === 'board_game' ? `/admin/board/${event.id}/edit` :
-    isHighScore ? `/admin/highscore/${event.id}/edit` :
-    null;
+    isHighScore       ? `/admin/highscore/${event.id}/edit` :
+    `/admin/events/${event.id}/edit`;
 
   const typeBadgeLabel =
     event.event_type === 'bingo_solo' ? 'Solo Bingo' :
@@ -133,18 +143,14 @@ function EventCard({ event, type }) {
           <div style={s.cardMeta}>
             <span style={{ ...s.statusDot, background: statusColor }} />
             <span style={s.statusText}>{event.status}</span>
-            {typeBadgeLabel && (
-              <span style={typeBadgeStyle}>{typeBadgeLabel}</span>
-            )}
+            {typeBadgeLabel && <span style={typeBadgeStyle}>{typeBadgeLabel}</span>}
           </div>
         </div>
       </div>
       <div style={s.cardActions}>
-        <Link to={adminPath} style={s.actionLink}>Manage</Link>
+        {isRunner && <Link to={adminPath} style={s.actionLink}>Manage</Link>}
         <Link to={scorePath} style={s.actionLink}>Scores</Link>
-        {editPath && (
-          <Link to={editPath} style={s.actionLink}>Edit</Link>
-        )}
+        {isRunner && <Link to={editPath} style={s.actionLink}>Edit</Link>}
         <Link to={publicPath} style={{ ...s.actionLink, ...s.publicLink }}>Public ↗</Link>
       </div>
     </div>
@@ -157,9 +163,11 @@ const s = {
   title: { color: '#fff', fontSize: 22, margin: 0 },
   headerRight: { display: 'flex', alignItems: 'center', gap: 12 },
   roleTag: { background: '#2a2a2a', color: '#888', borderRadius: 4, padding: '3px 10px', fontSize: 12 },
+  panelBtn: { background: '#1a2a1a', color: '#81c784', borderRadius: 6, padding: '8px 16px', textDecoration: 'none', fontSize: 13, fontWeight: 600, border: '1px solid #2e7d32' },
   ownerBtn: { background: '#2a2a2a', color: '#aaa', borderRadius: 6, padding: '8px 16px', textDecoration: 'none', fontSize: 13, fontWeight: 600, border: '1px solid #3a3a3a' },
   createBtn: { background: ACC, color: '#fff', borderRadius: 6, padding: '8px 16px', textDecoration: 'none', fontSize: 13, fontWeight: 700 },
   loading: { color: '#888', textAlign: 'center', padding: 40 },
+  empty: { color: '#555', textAlign: 'center', padding: 40, fontSize: 14 },
   section: { marginBottom: 32 },
   sectionTitle: { color: '#fff', fontSize: 15, marginBottom: 12 },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 12 },
