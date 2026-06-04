@@ -179,11 +179,11 @@ export default function SlotsEditPage() {
   const loadProfiles = useCallback(async () => {
     const { data, error: profErr } = await supabase
       .from('profiles')
-      .select('id, username, email, role')
+      .select('id, email, role')
       .neq('role', 'revoked')
       .order('email');
     if (profErr) {
-      setProfilesError('Cannot load accounts — ask an owner to run the profiles RLS fix in Supabase.');
+      setProfilesError(`Cannot load accounts: ${profErr.message}`);
     } else {
       // Normalize: derive a display name from email prefix since profiles has no username column
       setAllProfiles((data || []).map(p => ({ ...p, username: p.email?.split('@')[0] || p.id })));
