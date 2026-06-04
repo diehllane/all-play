@@ -288,7 +288,6 @@ export default function SlotsEditPage() {
     const displayName = prof.username || prof.email?.split('@')[0] || 'Unknown';
     const { error: e } = await supabase.from('slots_players').insert({
       event_id: eventId,
-      name: displayName,
       display_name: displayName,
       profile_id: prof.id,
       color: newPlayerColor || null,
@@ -317,7 +316,7 @@ export default function SlotsEditPage() {
     for (const row of rows) {
       const name = row['player_name']?.trim();
       if (!name) { errors.push('Row missing player_name'); continue; }
-      const existing = players.find(p => (p.name || p.display_name)?.toLowerCase() === name.toLowerCase());
+      const existing = players.find(p => (p.display_name)?.toLowerCase() === name.toLowerCase());
       if (existing) {
         await supabase.from('slots_players').update({
           avatar_url: row['avatar_url']?.trim() || existing.avatar_url,
@@ -326,7 +325,6 @@ export default function SlotsEditPage() {
       } else {
         await supabase.from('slots_players').insert({
           event_id: eventId,
-          name,
           display_name: name,
           avatar_url: row['avatar_url']?.trim() || null,
           color: row['color']?.trim() || null,
@@ -346,7 +344,7 @@ export default function SlotsEditPage() {
     downloadCSV(
       `slots_players_${eventId}.csv`,
       ['player_name', 'avatar_url', 'color'],
-      players.map(p => ({ player_name: p.name || p.display_name, avatar_url: p.avatar_url ?? '', color: p.color ?? '' }))
+      players.map(p => ({ player_name: p.display_name, avatar_url: p.avatar_url ?? '', color: p.color ?? '' }))
     );
   };
 
@@ -683,9 +681,9 @@ export default function SlotsEditPage() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         {p.avatar_url
                           ? <img src={p.avatar_url} alt="" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }} />
-                          : <div style={{ width: 28, height: 28, borderRadius: '50%', background: p.color || '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff' }}>{(p.name || p.display_name)?.charAt(0)}</div>
+                          : <div style={{ width: 28, height: 28, borderRadius: '50%', background: p.color || '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff' }}>{(p.display_name)?.charAt(0)}</div>
                         }
-                        {p.name || p.display_name}
+                        {p.display_name}
                       </div>
                     </td>
                     <td style={{ padding: '8px 12px' }}>
@@ -695,7 +693,7 @@ export default function SlotsEditPage() {
                     <td style={{ padding: '8px 12px', color: '#ffd700' }}>🎟️ {p.slot_tokens ?? 0}</td>
                     <td style={{ padding: '8px 12px', color: '#aaa' }}>🪙 {p.casino_prize_coins ?? 0}</td>
                     <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                      <button onClick={() => removePlayer(p.id, p.name || p.display_name)}
+                      <button onClick={() => removePlayer(p.id, p.display_name)}
                         style={{ background: 'none', border: '1px solid #4a1010', color: '#ef5350', borderRadius: 5, padding: '3px 10px', fontSize: 12, cursor: 'pointer' }}>
                         Remove
                       </button>
