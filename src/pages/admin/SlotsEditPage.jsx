@@ -3,11 +3,22 @@ import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 
+// Symbol images are hardcoded in the app — no per-event custom URLs for reels.
+// Banner image and player avatars are still configurable.
 const ALL_SYMBOLS = ['masterball','pokeball','greatball','ultraball','pikachu','eevee','rare_candy','potion','berry'];
 const SYMBOL_LABELS = { masterball:'Masterball', pokeball:'Pokeball', greatball:'Greatball', ultraball:'Ultraball', pikachu:'Pikachu', eevee:'Eevee', rare_candy:'Rare Candy', potion:'Potion', berry:'Berry' };
-const DEFAULT_EMOJIS = { masterball:'🟣', pokeball:'🔴', greatball:'🔵', ultraball:'🟡', pikachu:'⚡', eevee:'🦊', rare_candy:'🍬', potion:'🧪', berry:'🫐' };
+const SYMBOL_IMAGES = {
+  masterball: '/all-play/images/slots/masterball.png',
+  pokeball:   '/all-play/images/slots/pokeball.png',
+  greatball:  '/all-play/images/slots/greatball.png',
+  ultraball:  '/all-play/images/slots/ultraball.png',
+  pikachu:    '/all-play/images/slots/pikachu.png',
+  eevee:      '/all-play/images/slots/eevee.png',
+  rare_candy: '/all-play/images/slots/rare_candy.png',
+  potion:     '/all-play/images/slots/potion.png',
+  berry:      '/all-play/images/slots/berry.png',
+};
 
-// ── CSV helpers ───────────────────────────────────────────
 function parseCSV(text) {
   const lines = text.trim().split('\n');
   if (lines.length < 2) return { headers: [], rows: [] };
@@ -68,7 +79,6 @@ function CsvImporter({ onImport, sampleHeaders, sampleRow, label, themeColor }) 
         ↓ Sample
       </button>
       {result && <span style={{ fontSize: 12, color: result.error ? '#ef4444' : '#4ade80' }}>{result.text}</span>}
-
       {preview && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 10, padding: 24, maxWidth: 720, width: '90%', maxHeight: '80vh', overflow: 'auto' }}>
@@ -116,23 +126,16 @@ export default function SlotsEditPage() {
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('config');
 
-  // Config form state
   const [form, setForm] = useState({});
-  const [symbolImages, setSymbolImages] = useState({});
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
 
-  // Inline add state — categories
   const [newCatLabel, setNewCatLabel] = useState('');
   const [newCatPts, setNewCatPts] = useState('1');
-
-  // Inline add state — store items
   const [newItemLabel, setNewItemLabel] = useState('');
   const [newItemCost, setNewItemCost] = useState('');
   const [newItemQty, setNewItemQty] = useState('');
   const [newItemTokens, setNewItemTokens] = useState('');
-
-  // Inline add state — players
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [newPlayerColor, setNewPlayerColor] = useState('#c62828');
 
@@ -164,7 +167,6 @@ export default function SlotsEditPage() {
         cpc_per_token: cfg.cpc_per_token ?? 5,
         discord_webhook_url: cfg.discord_webhook_url || '',
       });
-      setSymbolImages(cfg.symbol_images || {});
       setCategories(catRes.data || []);
       setStoreItems(storeRes.data || []);
       setPlayers(playersRes.data || []);
@@ -175,17 +177,12 @@ export default function SlotsEditPage() {
     }
   }, [eventId]);
 
-  // Load profiles separately — may fail for non-owners without the RLS policy fix
   const loadProfiles = useCallback(async () => {
     const { data, error: profErr } = await supabase
-      .from('profiles')
-      .select('id, email, role')
-      .neq('role', 'revoked')
-      .order('email');
+      .from('profiles').select('id, email, role').neq('role', 'revoked').order('email');
     if (profErr) {
       setProfilesError(`Cannot load accounts: ${profErr.message}`);
     } else {
-      // Normalize: derive a display name from email prefix since profiles has no username column
       setAllProfiles((data || []).map(p => ({ ...p, username: p.email?.split('@')[0] || p.id })));
       setProfilesError(null);
     }
@@ -201,7 +198,6 @@ export default function SlotsEditPage() {
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
   const flash = (msg) => { setSaveMsg(msg); setTimeout(() => setSaveMsg(''), 4000); };
 
-  // ── Config ────────────────────────────────────────────────
   const saveConfig = async () => {
     setSaving(true);
     const { error: e } = await supabase.from('slots_config').update({
@@ -222,24 +218,12 @@ export default function SlotsEditPage() {
     if (!e) loadAll();
   };
 
-  const saveSymbols = async () => {
-    setSaving(true);
-    const { error: e } = await supabase.from('slots_config').update({ symbol_images: symbolImages }).eq('event_id', eventId);
-    flash(e ? 'Error: ' + e.message : '✅ Symbol images saved!');
-    setSaving(false);
-    if (!e) loadAll();
-  };
-
-  // ── Categories ────────────────────────────────────────────
   const addCategory = async () => {
     const label = newCatLabel.trim();
     if (!label) return;
     const { error: e } = await supabase.from('slots_categories').insert({
-      event_id: eventId,
-      label,
-      point_value: parseFloat(newCatPts) || 1,
-      sort_order: categories.length,
-      is_active: true,
+      event_id: eventId, label, point_value: parseFloat(newCatPts) || 1,
+      sort_order: categories.length, is_active: true,
     });
     if (e) { flash('Error: ' + e.message); return; }
     setNewCatLabel(''); setNewCatPts('1');
@@ -273,32 +257,20 @@ export default function SlotsEditPage() {
   };
 
   const exportCategories = () => {
-    downloadCSV(
-      `slots_categories_${eventId}.csv`,
-      ['label', 'point_value', 'sort_order'],
-      categories.map((c, i) => ({ label: c.label, point_value: c.point_value, sort_order: c.sort_order ?? i }))
-    );
+    downloadCSV(`slots_categories_${eventId}.csv`, ['label', 'point_value', 'sort_order'],
+      categories.map((c, i) => ({ label: c.label, point_value: c.point_value, sort_order: c.sort_order ?? i })));
   };
 
-  // ── Players ───────────────────────────────────────────────
   const addPlayer = async () => {
     if (!selectedProfileId) return;
     const prof = allProfiles.find(p => p.id === selectedProfileId);
     if (!prof) return;
     const displayName = prof.username || prof.email?.split('@')[0] || 'Unknown';
     const { error: e } = await supabase.from('slots_players').insert({
-      event_id: eventId,
-      display_name: displayName,
-      profile_id: prof.id,
-      color: newPlayerColor || null,
-      avatar_url: null,
-      sort_order: players.length,
-      slot_tokens: 0,
-      casino_prize_coins: 0,
-      total_tokens_spent: 0,
-      total_cpc_won: 0,
-      total_spins: 0,
-      jackpots_hit: 0,
+      event_id: eventId, display_name: displayName, profile_id: prof.id,
+      color: newPlayerColor || null, avatar_url: null, sort_order: players.length,
+      slot_tokens: 0, casino_prize_coins: 0, total_tokens_spent: 0,
+      total_cpc_won: 0, total_spins: 0, jackpots_hit: 0,
     });
     if (e) { flash('Error: ' + e.message); return; }
     setSelectedProfileId(''); setNewPlayerColor('#c62828');
@@ -316,7 +288,7 @@ export default function SlotsEditPage() {
     for (const row of rows) {
       const name = row['player_name']?.trim();
       if (!name) { errors.push('Row missing player_name'); continue; }
-      const existing = players.find(p => (p.display_name)?.toLowerCase() === name.toLowerCase());
+      const existing = players.find(p => p.display_name?.toLowerCase() === name.toLowerCase());
       if (existing) {
         await supabase.from('slots_players').update({
           avatar_url: row['avatar_url']?.trim() || existing.avatar_url,
@@ -324,8 +296,7 @@ export default function SlotsEditPage() {
         }).eq('id', existing.id);
       } else {
         await supabase.from('slots_players').insert({
-          event_id: eventId,
-          display_name: name,
+          event_id: eventId, display_name: name,
           avatar_url: row['avatar_url']?.trim() || null,
           color: row['color']?.trim() || null,
           sort_order: players.length + imported,
@@ -341,45 +312,30 @@ export default function SlotsEditPage() {
   };
 
   const exportPlayers = () => {
-    downloadCSV(
-      `slots_players_${eventId}.csv`,
-      ['player_name', 'avatar_url', 'color'],
-      players.map(p => ({ player_name: p.display_name, avatar_url: p.avatar_url ?? '', color: p.color ?? '' }))
-    );
+    downloadCSV(`slots_players_${eventId}.csv`, ['player_name', 'avatar_url', 'color'],
+      players.map(p => ({ player_name: p.display_name, avatar_url: p.avatar_url ?? '', color: p.color ?? '' })));
   };
 
-  // ── Store Items ───────────────────────────────────────────
   const addStoreItem = async () => {
     const label = newItemLabel.trim();
     if (!label || !newItemCost) return;
-    // Omit sort_order from insert — default 0 from DB, avoids schema cache error if column was just added
     const insertPayload = {
-      event_id: eventId,
-      label,
+      event_id: eventId, label,
       cost_cpc: parseInt(newItemCost) || 0,
       quantity: newItemQty ? parseInt(newItemQty) : null,
       quantity_remaining: newItemQty ? parseInt(newItemQty) : null,
       pays_out_slot_tokens: newItemTokens ? parseInt(newItemTokens) : null,
       is_active: true,
     };
-    // Only include sort_order if column confirmed to exist (post-migration)
     try {
-      const { error: e } = await supabase.from('slots_store_items').insert({
-        ...insertPayload,
-        sort_order: storeItems.length,
-      });
+      const { error: e } = await supabase.from('slots_store_items').insert({ ...insertPayload, sort_order: storeItems.length });
       if (e) {
-        // Fallback: retry without sort_order if column missing
         if (e.message?.includes('sort_order')) {
           const { error: e2 } = await supabase.from('slots_store_items').insert(insertPayload);
           if (e2) { flash('Error: ' + e2.message); return; }
-        } else {
-          flash('Error: ' + e.message); return;
-        }
+        } else { flash('Error: ' + e.message); return; }
       }
-    } catch (err) {
-      flash('Error: ' + err.message); return;
-    }
+    } catch (err) { flash('Error: ' + err.message); return; }
     setNewItemLabel(''); setNewItemCost(''); setNewItemQty(''); setNewItemTokens('');
     await loadAll();
   };
@@ -398,7 +354,6 @@ export default function SlotsEditPage() {
       const cost = parseInt(row['cost_cpc']) || 0;
       const qty = row['quantity'] ? parseInt(row['quantity']) : null;
       const paysOut = ['true','1','yes'].includes(String(row['pays_out_slot_tokens']).toLowerCase());
-      const sortOrder = parseInt(row['sort_order']) || imported;
       const existing = storeItems.find(s => s.label?.toLowerCase() === label.toLowerCase());
       if (existing) {
         await supabase.from('slots_store_items').update({ cost_cpc: cost, quantity: qty, pays_out_slot_tokens: paysOut }).eq('id', existing.id);
@@ -413,19 +368,19 @@ export default function SlotsEditPage() {
   };
 
   const exportStoreItems = () => {
-    downloadCSV(
-      `slots_store_items_${eventId}.csv`,
+    downloadCSV(`slots_store_items_${eventId}.csv`,
       ['label', 'cost_cpc', 'quantity', 'pays_out_slot_tokens', 'sort_order'],
       storeItems.map((s, i) => ({
         label: s.label, cost_cpc: s.cost_cpc, quantity: s.quantity ?? '',
         pays_out_slot_tokens: s.pays_out_slot_tokens ? 'true' : 'false', sort_order: s.sort_order ?? i,
-      }))
-    );
+      })));
   };
 
-  // Profiles not yet in this event — deduplicate strictly by profile_id
   const enrolledProfileIds = new Set(players.map(p => p.profile_id).filter(Boolean));
   const availableProfiles = allProfiles.filter(prof => !enrolledProfileIds.has(prof.id));
+
+  // Tabs — Symbol Images tab removed; symbols are hardcoded
+  const TABS = [['config','⚙️ Configuration'],['categories','🎯 Categories'],['players','👥 Players'],['store','🛒 Store Items']];
 
   return (
     <div style={styles.page}>
@@ -441,7 +396,7 @@ export default function SlotsEditPage() {
       </div>
 
       <div style={styles.tabBar}>
-        {[['config','⚙️ Configuration'],['symbols','🖼️ Symbol Images'],['categories','🎯 Categories'],['players','👥 Players'],['store','🛒 Store Items']].map(([id,label]) => (
+        {TABS.map(([id, label]) => (
           <button key={id} onClick={() => setActiveTab(id)}
             style={{ ...styles.tab, ...(activeTab===id ? { borderBottomColor: theme, color: '#fff' } : {}) }}>
             {label}
@@ -459,7 +414,22 @@ export default function SlotsEditPage() {
               <div style={styles.sectionTitle}>Display</div>
               <Field label="Game Title"><input value={form.game_title} onChange={e => set('game_title', e.target.value)} style={styles.input} /></Field>
               <Field label="Game Subtitle"><input value={form.game_subtitle} onChange={e => set('game_subtitle', e.target.value)} style={styles.input} /></Field>
-              <Field label="Banner Image URL"><input value={form.banner_image_url} onChange={e => set('banner_image_url', e.target.value)} style={styles.input} placeholder="https://…" /></Field>
+              <Field label="Banner Image URL" hint="Replaces the text title in the header when set.">
+                <input value={form.banner_image_url} onChange={e => set('banner_image_url', e.target.value)} style={styles.input} placeholder="https://…" />
+              </Field>
+              {/* Symbol image preview — read-only, images are hardcoded */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ display: 'block', fontSize: 12, color: '#888', marginBottom: 8, fontWeight: 600 }}>Reel Symbols</label>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  {ALL_SYMBOLS.map(sym => (
+                    <div key={sym} style={{ textAlign: 'center', opacity: 0.7 }}>
+                      <img src={SYMBOL_IMAGES[sym]} alt={sym} style={{ width: 36, height: 36, objectFit: 'contain', display: 'block' }} />
+                      <div style={{ fontSize: 10, color: '#666', marginTop: 3 }}>{SYMBOL_LABELS[sym]}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, opacity: 0.35, marginTop: 8 }}>Symbol images are shared across all events and managed in the repo at public/images/slots/.</div>
+              </div>
               <Field label="Theme Color">
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                   <input type="color" value={form.theme_color} onChange={e => set('theme_color', e.target.value)} style={{ width: 48, height: 36, border: 'none', background: 'none', cursor: 'pointer' }} />
@@ -467,6 +437,7 @@ export default function SlotsEditPage() {
                 </div>
               </Field>
             </div>
+
             <div style={styles.section}>
               <div style={styles.sectionTitle}>Scoring & Tokens</div>
               <Field label="Score Divisor" hint="raw_score ÷ divisor = tokens awarded">
@@ -492,52 +463,23 @@ export default function SlotsEditPage() {
                 <input type="number" value={form.max_tokens_per_day} onChange={e => set('max_tokens_per_day', e.target.value)} style={{ ...styles.input, width: 120 }} />
               </Field>
             </div>
+
             <div style={styles.section}>
               <div style={styles.sectionTitle}>Economy</div>
               <Field label="CPC per Token" hint="CPC wagered per spin (affects display only — RTP math is fixed)">
                 <input type="number" value={form.cpc_per_token} onChange={e => set('cpc_per_token', e.target.value)} style={{ ...styles.input, width: 120 }} />
               </Field>
             </div>
+
             <div style={styles.section}>
               <div style={styles.sectionTitle}>Integrations</div>
               <Field label="Discord Webhook URL" hint="Post-commit summary sent here. Leave blank to disable.">
                 <input value={form.discord_webhook_url} onChange={e => set('discord_webhook_url', e.target.value)} style={styles.input} placeholder="https://discord.com/api/webhooks/…" />
               </Field>
             </div>
+
             <button onClick={saveConfig} disabled={saving} style={{ ...styles.saveBtn, background: theme }}>
               {saving ? 'Saving…' : 'Save Configuration'}
-            </button>
-          </div>
-        )}
-
-        {/* ─── Symbol Images ─── */}
-        {activeTab === 'symbols' && (
-          <div style={styles.formWrap}>
-            <p style={{ opacity: 0.6, fontSize: 13, marginBottom: 20 }}>
-              Provide direct image URLs for each symbol. Leave blank to use the default emoji.
-            </p>
-            <div style={styles.symbolGrid}>
-              {ALL_SYMBOLS.map(sym => (
-                <div key={sym} style={styles.symbolCard}>
-                  <div style={styles.symbolPreview}>
-                    {symbolImages[sym]
-                      ? <img src={symbolImages[sym]} style={{ width: 48, height: 48, objectFit: 'contain' }} alt={sym} />
-                      : <span style={{ fontSize: 36 }}>{DEFAULT_EMOJIS[sym]}</span>
-                    }
-                  </div>
-                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>{SYMBOL_LABELS[sym]}</div>
-                  <input placeholder="Image URL (optional)" value={symbolImages[sym] || ''}
-                    onChange={e => setSymbolImages(s => ({ ...s, [sym]: e.target.value || undefined }))}
-                    style={{ ...styles.input, fontSize: 11 }} />
-                  {symbolImages[sym] && (
-                    <button onClick={() => setSymbolImages(s => { const n = {...s}; delete n[sym]; return n; })}
-                      style={{ marginTop: 4, fontSize: 11, color: '#888', background: 'none', border: 'none', cursor: 'pointer' }}>× Clear</button>
-                  )}
-                </div>
-              ))}
-            </div>
-            <button onClick={saveSymbols} disabled={saving} style={{ ...styles.saveBtn, background: theme }}>
-              {saving ? 'Saving…' : 'Save Symbol Images'}
             </button>
           </div>
         )}
@@ -558,8 +500,6 @@ export default function SlotsEditPage() {
                 </button>
               </div>
             </div>
-
-            {/* Inline add */}
             <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center', background: '#111', border: '1px solid #222', borderRadius: 8, padding: 12 }}>
               <input value={newCatLabel} onChange={e => setNewCatLabel(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && addCategory()}
@@ -574,7 +514,6 @@ export default function SlotsEditPage() {
                 + Add
               </button>
             </div>
-
             {categories.length === 0 && <div style={{ color: '#555', fontSize: 13, padding: '16px 0' }}>No categories yet.</div>}
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               {categories.length > 0 && (
@@ -622,8 +561,6 @@ export default function SlotsEditPage() {
                 </button>
               </div>
             </div>
-
-            {/* Inline add from profiles */}
             <div style={{ background: '#111', border: '1px solid #222', borderRadius: 8, padding: 14, marginBottom: 20 }}>
               <div style={{ fontSize: 12, color: '#888', marginBottom: 10, fontWeight: 600 }}>ADD PLAYER FROM ACCOUNT</div>
               {profilesError ? (
@@ -637,9 +574,7 @@ export default function SlotsEditPage() {
                     style={{ ...styles.input, flex: 2, minWidth: 200 }}>
                     <option value="">Select account…</option>
                     {availableProfiles.map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.username || p.email?.split('@')[0]} ({p.role})
-                      </option>
+                      <option key={p.id} value={p.id}>{p.username || p.email?.split('@')[0]} ({p.role})</option>
                     ))}
                   </select>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -656,11 +591,7 @@ export default function SlotsEditPage() {
               {!profilesError && availableProfiles.length === 0 && allProfiles.length > 0 && (
                 <div style={{ fontSize: 12, color: '#555', marginTop: 8 }}>All accounts are already enrolled.</div>
               )}
-              {!profilesError && allProfiles.length === 0 && (
-                <div style={{ fontSize: 12, color: '#555', marginTop: 8 }}>No accounts found. Use CSV import to add players by name.</div>
-              )}
             </div>
-
             {players.length === 0 && <div style={{ color: '#555', fontSize: 13, padding: '16px 0' }}>No players enrolled yet.</div>}
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               {players.length > 0 && (
@@ -681,7 +612,7 @@ export default function SlotsEditPage() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         {p.avatar_url
                           ? <img src={p.avatar_url} alt="" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }} />
-                          : <div style={{ width: 28, height: 28, borderRadius: '50%', background: p.color || '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff' }}>{(p.display_name)?.charAt(0)}</div>
+                          : <div style={{ width: 28, height: 28, borderRadius: '50%', background: p.color || '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff' }}>{p.display_name?.charAt(0)}</div>
                         }
                         {p.display_name}
                       </div>
@@ -721,8 +652,6 @@ export default function SlotsEditPage() {
                 </button>
               </div>
             </div>
-
-            {/* Inline add */}
             <div style={{ background: '#111', border: '1px solid #222', borderRadius: 8, padding: 14, marginBottom: 20 }}>
               <div style={{ fontSize: 12, color: '#888', marginBottom: 10, fontWeight: 600 }}>ADD STORE ITEM</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
@@ -741,7 +670,6 @@ export default function SlotsEditPage() {
               </div>
               <div style={{ fontSize: 11, color: '#555' }}>Qty blank = unlimited. Pays tokens = token bundle items that award Slot Tokens on purchase.</div>
             </div>
-
             {storeItems.length === 0 && <div style={{ color: '#555', fontSize: 13, padding: '16px 0' }}>No store items yet.</div>}
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               {storeItems.length > 0 && (
@@ -812,7 +740,4 @@ const styles = {
   sectionTitle: { fontWeight: 700, fontSize: 14, marginBottom: 16, color: '#ccc' },
   input: { background: '#0d0d14', border: '1px solid #2a2a3a', borderRadius: 6, color: '#e0e0e0', padding: '8px 12px', fontSize: 13, width: '100%', boxSizing: 'border-box' },
   saveBtn: { padding: '10px 28px', borderRadius: 8, fontSize: 14, fontWeight: 700, color: '#fff', border: 'none', cursor: 'pointer', marginTop: 8 },
-  symbolGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 16, marginBottom: 20 },
-  symbolCard: { background: '#111', border: '1px solid #222', borderRadius: 10, padding: 14 },
-  symbolPreview: { width: 64, height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8, background: '#0a0a0f', borderRadius: 8 },
 };
