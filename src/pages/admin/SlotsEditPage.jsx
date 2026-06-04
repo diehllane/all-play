@@ -110,6 +110,7 @@ export default function SlotsEditPage() {
   const [categories, setCategories] = useState([]);
   const [storeItems, setStoreItems] = useState([]);
   const [players, setPlayers] = useState([]);
+  const [allProfiles, setAllProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('config');
@@ -120,16 +121,32 @@ export default function SlotsEditPage() {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
 
+  // Inline add state — categories
+  const [newCatLabel, setNewCatLabel] = useState('');
+  const [newCatPts, setNewCatPts] = useState('1');
+
+  // Inline add state — store items
+  const [newItemLabel, setNewItemLabel] = useState('');
+  const [newItemCost, setNewItemCost] = useState('');
+  const [newItemQty, setNewItemQty] = useState('');
+  const [newItemTokens, setNewItemTokens] = useState('');
+
+  // Inline add state — players
+  const [selectedProfileId, setSelectedProfileId] = useState('');
+  const [newPlayerColor, setNewPlayerColor] = useState('#c62828');
+
   const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
 
   const loadAll = useCallback(async () => {
     try {
-      const [evRes, cfgRes, catRes, storeRes, playersRes] = await Promise.all([
+      const [evRes, cfgRes, catRes, storeRes, playersRes, profilesRes] = await Promise.all([
         supabase.from('events').select('*').eq('id', eventId).single(),
         supabase.from('slots_config').select('*').eq('event_id', eventId).single(),
         supabase.from('slots_categories').select('*').eq('event_id', eventId).order('sort_order'),
         supabase.from('slots_store_items').select('*').eq('event_id', eventId).order('sort_order'),
         supabase.from('slots_players').select('*').eq('event_id', eventId).order('sort_order'),
+        // Load all non-revoked profiles for the player dropdown
+        supabase.from('profiles').select('id, username, email, role').neq('role', 'revoked').order('username'),
       ]);
       if (evRes.error) throw evRes.error;
       setEvent(evRes.data);
@@ -152,6 +169,7 @@ export default function SlotsEditPage() {
       setCategories(catRes.data || []);
       setStoreItems(storeRes.data || []);
       setPlayers(playersRes.data || []);
+      setAllProfiles(profilesRes.data || []);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -167,9 +185,9 @@ export default function SlotsEditPage() {
 
   const theme = form.theme_color || '#c62828';
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
-
   const flash = (msg) => { setSaveMsg(msg); setTimeout(() => setSaveMsg(''), 4000); };
 
+  // ── Config ────────────────────────────────────────────────
   const saveConfig = async () => {
     setSaving(true);
     const { error: e } = await supabase.from('slots_config').update({
@@ -198,43 +216,28 @@ export default function SlotsEditPage() {
     if (!e) loadAll();
   };
 
-  // ── Players CSV ───────────────────────────────────────────
-  const importPlayers = async (rows) => {
-    let imported = 0, errors = [];
-    for (const row of rows) {
-      const name = row['player_name']?.trim();
-      if (!name) { errors.push('Row missing player_name'); continue; }
-      const existing = players.find(p => p.name?.toLowerCase() === name.toLowerCase());
-      if (existing) {
-        await supabase.from('slots_players').update({
-          avatar_url: row['avatar_url']?.trim() || existing.avatar_url,
-          color: row['color']?.trim() || existing.color,
-        }).eq('id', existing.id);
-      } else {
-        await supabase.from('slots_players').insert({
-          event_id: eventId,
-          name,
-          avatar_url: row['avatar_url']?.trim() || null,
-          color: row['color']?.trim() || null,
-          sort_order: players.length + imported,
-        });
-      }
-      imported++;
-    }
+  // ── Categories ────────────────────────────────────────────
+  const addCategory = async () => {
+    const label = newCatLabel.trim();
+    if (!label) return;
+    const { error: e } = await supabase.from('slots_categories').insert({
+      event_id: eventId,
+      label,
+      point_value: parseFloat(newCatPts) || 1,
+      sort_order: categories.length,
+      is_active: true,
+    });
+    if (e) { flash('Error: ' + e.message); return; }
+    setNewCatLabel(''); setNewCatPts('1');
     await loadAll();
-    if (errors.length) return { error: true, text: `${imported} imported, ${errors.length} errors: ${errors[0]}` };
-    return { text: `${imported} players imported.` };
   };
 
-  const exportPlayers = () => {
-    downloadCSV(
-      `slots_players_${eventId}.csv`,
-      ['player_name', 'avatar_url', 'color'],
-      players.map(p => ({ player_name: p.name, avatar_url: p.avatar_url ?? '', color: p.color ?? '' }))
-    );
+  const removeCategory = async (id) => {
+    if (!confirm('Remove this category?')) return;
+    await supabase.from('slots_categories').delete().eq('id', id);
+    await loadAll();
   };
 
-  // ── Categories CSV ────────────────────────────────────────
   const importCategories = async (rows) => {
     let imported = 0, errors = [];
     for (const row of rows) {
@@ -246,7 +249,7 @@ export default function SlotsEditPage() {
       if (existing) {
         await supabase.from('slots_categories').update({ point_value: pts, sort_order: sortOrder }).eq('id', existing.id);
       } else {
-        await supabase.from('slots_categories').insert({ event_id: eventId, label, point_value: pts, sort_order: sortOrder });
+        await supabase.from('slots_categories').insert({ event_id: eventId, label, point_value: pts, sort_order: sortOrder, is_active: true });
       }
       imported++;
     }
@@ -263,28 +266,116 @@ export default function SlotsEditPage() {
     );
   };
 
-  // ── Store Items CSV ───────────────────────────────────────
+  // ── Players ───────────────────────────────────────────────
+  const addPlayer = async () => {
+    if (!selectedProfileId) return;
+    const prof = allProfiles.find(p => p.id === selectedProfileId);
+    if (!prof) return;
+    // Use username if set, fall back to email prefix
+    const displayName = prof.username || prof.email?.split('@')[0] || 'Unknown';
+    const { error: e } = await supabase.from('slots_players').insert({
+      event_id: eventId,
+      name: displayName,
+      display_name: displayName,
+      profile_id: prof.id,
+      color: newPlayerColor || null,
+      avatar_url: null,
+      sort_order: players.length,
+      slot_tokens: 0,
+      casino_prize_coins: 0,
+      total_tokens_spent: 0,
+      total_cpc_won: 0,
+      total_spins: 0,
+      jackpots_hit: 0,
+    });
+    if (e) { flash('Error: ' + e.message); return; }
+    setSelectedProfileId(''); setNewPlayerColor('#c62828');
+    await loadAll();
+  };
+
+  const removePlayer = async (id, name) => {
+    if (!confirm(`Remove ${name} from this event? Their token balance and spin history will be deleted.`)) return;
+    await supabase.from('slots_players').delete().eq('id', id);
+    await loadAll();
+  };
+
+  const importPlayers = async (rows) => {
+    let imported = 0, errors = [];
+    for (const row of rows) {
+      const name = row['player_name']?.trim();
+      if (!name) { errors.push('Row missing player_name'); continue; }
+      const existing = players.find(p => (p.name || p.display_name)?.toLowerCase() === name.toLowerCase());
+      if (existing) {
+        await supabase.from('slots_players').update({
+          avatar_url: row['avatar_url']?.trim() || existing.avatar_url,
+          color: row['color']?.trim() || existing.color,
+        }).eq('id', existing.id);
+      } else {
+        await supabase.from('slots_players').insert({
+          event_id: eventId,
+          name,
+          display_name: name,
+          avatar_url: row['avatar_url']?.trim() || null,
+          color: row['color']?.trim() || null,
+          sort_order: players.length + imported,
+          slot_tokens: 0, casino_prize_coins: 0,
+          total_tokens_spent: 0, total_cpc_won: 0, total_spins: 0, jackpots_hit: 0,
+        });
+      }
+      imported++;
+    }
+    await loadAll();
+    if (errors.length) return { error: true, text: `${imported} imported, ${errors.length} errors: ${errors[0]}` };
+    return { text: `${imported} players imported.` };
+  };
+
+  const exportPlayers = () => {
+    downloadCSV(
+      `slots_players_${eventId}.csv`,
+      ['player_name', 'avatar_url', 'color'],
+      players.map(p => ({ player_name: p.name || p.display_name, avatar_url: p.avatar_url ?? '', color: p.color ?? '' }))
+    );
+  };
+
+  // ── Store Items ───────────────────────────────────────────
+  const addStoreItem = async () => {
+    const label = newItemLabel.trim();
+    if (!label || !newItemCost) return;
+    const { error: e } = await supabase.from('slots_store_items').insert({
+      event_id: eventId,
+      label,
+      cost_cpc: parseInt(newItemCost) || 0,
+      quantity: newItemQty ? parseInt(newItemQty) : null,
+      quantity_remaining: newItemQty ? parseInt(newItemQty) : null,
+      pays_out_slot_tokens: newItemTokens ? parseInt(newItemTokens) : null,
+      is_active: true,
+      sort_order: storeItems.length,
+    });
+    if (e) { flash('Error: ' + e.message); return; }
+    setNewItemLabel(''); setNewItemCost(''); setNewItemQty(''); setNewItemTokens('');
+    await loadAll();
+  };
+
+  const removeStoreItem = async (id, label) => {
+    if (!confirm(`Remove "${label}" from the store?`)) return;
+    await supabase.from('slots_store_items').delete().eq('id', id);
+    await loadAll();
+  };
+
   const importStoreItems = async (rows) => {
     let imported = 0, errors = [];
     for (const row of rows) {
       const label = row['label']?.trim();
       if (!label) { errors.push('Row missing label'); continue; }
       const cost = parseInt(row['cost_cpc']) || 0;
-      const qty = parseInt(row['quantity']) || 0;
+      const qty = row['quantity'] ? parseInt(row['quantity']) : null;
       const paysOut = ['true','1','yes'].includes(String(row['pays_out_slot_tokens']).toLowerCase());
       const sortOrder = parseInt(row['sort_order']) || imported;
       const existing = storeItems.find(s => s.label?.toLowerCase() === label.toLowerCase());
       if (existing) {
-        await supabase.from('slots_store_items').update({
-          cost_cpc: cost,
-          quantity: qty,
-          pays_out_slot_tokens: paysOut,
-          sort_order: sortOrder,
-        }).eq('id', existing.id);
+        await supabase.from('slots_store_items').update({ cost_cpc: cost, quantity: qty, pays_out_slot_tokens: paysOut, sort_order: sortOrder }).eq('id', existing.id);
       } else {
-        await supabase.from('slots_store_items').insert({
-          event_id: eventId, label, cost_cpc: cost, quantity: qty, pays_out_slot_tokens: paysOut, sort_order: sortOrder,
-        });
+        await supabase.from('slots_store_items').insert({ event_id: eventId, label, cost_cpc: cost, quantity: qty, quantity_remaining: qty, pays_out_slot_tokens: paysOut, sort_order: sortOrder, is_active: true });
       }
       imported++;
     }
@@ -298,14 +389,16 @@ export default function SlotsEditPage() {
       `slots_store_items_${eventId}.csv`,
       ['label', 'cost_cpc', 'quantity', 'pays_out_slot_tokens', 'sort_order'],
       storeItems.map((s, i) => ({
-        label: s.label,
-        cost_cpc: s.cost_cpc,
-        quantity: s.quantity,
-        pays_out_slot_tokens: s.pays_out_slot_tokens ? 'true' : 'false',
-        sort_order: s.sort_order ?? i,
+        label: s.label, cost_cpc: s.cost_cpc, quantity: s.quantity ?? '',
+        pays_out_slot_tokens: s.pays_out_slot_tokens ? 'true' : 'false', sort_order: s.sort_order ?? i,
       }))
     );
   };
+
+  // Profiles not yet in this event
+  const availableProfiles = allProfiles.filter(
+    prof => !players.some(p => p.profile_id === prof.id || (p.name || p.display_name)?.toLowerCase() === (prof.username || '').toLowerCase())
+  );
 
   return (
     <div style={styles.page}>
@@ -347,7 +440,6 @@ export default function SlotsEditPage() {
                 </div>
               </Field>
             </div>
-
             <div style={styles.section}>
               <div style={styles.sectionTitle}>Scoring & Tokens</div>
               <Field label="Score Divisor" hint="raw_score ÷ divisor = tokens awarded">
@@ -373,21 +465,18 @@ export default function SlotsEditPage() {
                 <input type="number" value={form.max_tokens_per_day} onChange={e => set('max_tokens_per_day', e.target.value)} style={{ ...styles.input, width: 120 }} />
               </Field>
             </div>
-
             <div style={styles.section}>
               <div style={styles.sectionTitle}>Economy</div>
               <Field label="CPC per Token" hint="CPC wagered per spin (affects display only — RTP math is fixed)">
                 <input type="number" value={form.cpc_per_token} onChange={e => set('cpc_per_token', e.target.value)} style={{ ...styles.input, width: 120 }} />
               </Field>
             </div>
-
             <div style={styles.section}>
               <div style={styles.sectionTitle}>Integrations</div>
               <Field label="Discord Webhook URL" hint="Post-commit summary sent here. Leave blank to disable.">
                 <input value={form.discord_webhook_url} onChange={e => set('discord_webhook_url', e.target.value)} style={styles.input} placeholder="https://discord.com/api/webhooks/…" />
               </Field>
             </div>
-
             <button onClick={saveConfig} disabled={saving} style={{ ...styles.saveBtn, background: theme }}>
               {saving ? 'Saving…' : 'Save Configuration'}
             </button>
@@ -398,7 +487,7 @@ export default function SlotsEditPage() {
         {activeTab === 'symbols' && (
           <div style={styles.formWrap}>
             <p style={{ opacity: 0.6, fontSize: 13, marginBottom: 20 }}>
-              Provide direct image URLs for each symbol. Leave blank to use the default emoji. Custom images should be square (recommended: 64×64px or larger, hosted externally).
+              Provide direct image URLs for each symbol. Leave blank to use the default emoji.
             </p>
             <div style={styles.symbolGrid}>
               {ALL_SYMBOLS.map(sym => (
@@ -410,17 +499,12 @@ export default function SlotsEditPage() {
                     }
                   </div>
                   <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>{SYMBOL_LABELS[sym]}</div>
-                  <input
-                    placeholder="Image URL (optional)"
-                    value={symbolImages[sym] || ''}
+                  <input placeholder="Image URL (optional)" value={symbolImages[sym] || ''}
                     onChange={e => setSymbolImages(s => ({ ...s, [sym]: e.target.value || undefined }))}
-                    style={{ ...styles.input, fontSize: 11 }}
-                  />
+                    style={{ ...styles.input, fontSize: 11 }} />
                   {symbolImages[sym] && (
                     <button onClick={() => setSymbolImages(s => { const n = {...s}; delete n[sym]; return n; })}
-                      style={{ marginTop: 4, fontSize: 11, color: '#888', background: 'none', border: 'none', cursor: 'pointer' }}>
-                      × Clear
-                    </button>
+                      style={{ marginTop: 4, fontSize: 11, color: '#888', background: 'none', border: 'none', cursor: 'pointer' }}>× Clear</button>
                   )}
                 </div>
               ))}
@@ -435,22 +519,36 @@ export default function SlotsEditPage() {
         {activeTab === 'categories' && (
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-              <p style={{ fontSize: 13, opacity: 0.6, margin: 0 }}>Encounter types and their point values. Upserts by label.</p>
+              <span style={{ fontSize: 13, opacity: 0.6 }}>{categories.length} categories</span>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <CsvImporter
-                  label="slots_categories"
-                  themeColor={theme}
+                <CsvImporter label="slots_categories" themeColor={theme}
                   sampleHeaders={['label', 'point_value', 'sort_order']}
                   sampleRow={{ label: 'Shiny Legend', point_value: 100, sort_order: 0 }}
-                  onImport={importCategories}
-                />
+                  onImport={importCategories} />
                 <button onClick={exportCategories}
                   style={{ background: 'none', border: '1px solid #333', color: '#666', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>
                   ↓ Export CSV
                 </button>
               </div>
             </div>
-            {categories.length === 0 && <div style={{ color: '#666', fontSize: 13, padding: '20px 0' }}>No categories yet. Import a CSV or add them via the Event Admin page.</div>}
+
+            {/* Inline add */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center', background: '#111', border: '1px solid #222', borderRadius: 8, padding: 12 }}>
+              <input value={newCatLabel} onChange={e => setNewCatLabel(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addCategory()}
+                placeholder="Category label (e.g. Shiny Legend)"
+                style={{ ...styles.input, flex: 2, minWidth: 160 }} />
+              <input type="number" value={newCatPts} onChange={e => setNewCatPts(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addCategory()}
+                placeholder="Points" min="0" step="0.1"
+                style={{ ...styles.input, width: 90 }} />
+              <button onClick={addCategory} disabled={!newCatLabel.trim()}
+                style={{ ...styles.saveBtn, padding: '8px 18px', marginTop: 0, opacity: newCatLabel.trim() ? 1 : 0.5, background: theme }}>
+                + Add
+              </button>
+            </div>
+
+            {categories.length === 0 && <div style={{ color: '#555', fontSize: 13, padding: '16px 0' }}>No categories yet.</div>}
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               {categories.length > 0 && (
                 <thead>
@@ -458,6 +556,7 @@ export default function SlotsEditPage() {
                     <th style={{ padding: '8px 12px', textAlign: 'left', color: '#666', fontWeight: 600 }}>Label</th>
                     <th style={{ padding: '8px 12px', textAlign: 'right', color: '#666', fontWeight: 600 }}>Points</th>
                     <th style={{ padding: '8px 12px', textAlign: 'right', color: '#666', fontWeight: 600 }}>Order</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right', color: '#666', fontWeight: 600 }}></th>
                   </tr>
                 </thead>
               )}
@@ -466,7 +565,13 @@ export default function SlotsEditPage() {
                   <tr key={c.id} style={{ borderBottom: '1px solid #1a1a1a' }}>
                     <td style={{ padding: '8px 12px', color: '#ddd' }}>{c.label}</td>
                     <td style={{ padding: '8px 12px', textAlign: 'right', color: '#ffd700' }}>{c.point_value}</td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', color: '#666' }}>{c.sort_order}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right', color: '#555' }}>{c.sort_order}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                      <button onClick={() => removeCategory(c.id)}
+                        style={{ background: 'none', border: '1px solid #4a1010', color: '#ef5350', borderRadius: 5, padding: '3px 10px', fontSize: 12, cursor: 'pointer' }}>
+                        Remove
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -478,47 +583,84 @@ export default function SlotsEditPage() {
         {activeTab === 'players' && (
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-              <p style={{ fontSize: 13, opacity: 0.6, margin: 0 }}>{players.length} players. Upserts by player_name.</p>
+              <span style={{ fontSize: 13, opacity: 0.6 }}>{players.length} players enrolled</span>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <CsvImporter
-                  label="slots_players"
-                  themeColor={theme}
+                <CsvImporter label="slots_players" themeColor={theme}
                   sampleHeaders={['player_name', 'avatar_url', 'color']}
                   sampleRow={{ player_name: 'Ash', avatar_url: 'https://example.com/ash.png', color: '#ef4444' }}
-                  onImport={importPlayers}
-                />
+                  onImport={importPlayers} />
                 <button onClick={exportPlayers}
                   style={{ background: 'none', border: '1px solid #333', color: '#666', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>
                   ↓ Export CSV
                 </button>
               </div>
             </div>
-            {players.length === 0 && <div style={{ color: '#666', fontSize: 13, padding: '20px 0' }}>No players yet. Import a CSV to bulk-add them.</div>}
+
+            {/* Inline add from profiles */}
+            <div style={{ background: '#111', border: '1px solid #222', borderRadius: 8, padding: 14, marginBottom: 20 }}>
+              <div style={{ fontSize: 12, color: '#888', marginBottom: 10, fontWeight: 600 }}>ADD PLAYER FROM ACCOUNT</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <select value={selectedProfileId} onChange={e => setSelectedProfileId(e.target.value)}
+                  style={{ ...styles.input, flex: 2, minWidth: 200 }}>
+                  <option value="">Select account…</option>
+                  {availableProfiles.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.username || p.email?.split('@')[0]} ({p.role})
+                    </option>
+                  ))}
+                </select>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <label style={{ fontSize: 12, color: '#888' }}>Color</label>
+                  <input type="color" value={newPlayerColor} onChange={e => setNewPlayerColor(e.target.value)}
+                    style={{ width: 40, height: 34, border: 'none', background: 'none', cursor: 'pointer' }} />
+                </div>
+                <button onClick={addPlayer} disabled={!selectedProfileId}
+                  style={{ ...styles.saveBtn, padding: '8px 18px', marginTop: 0, opacity: selectedProfileId ? 1 : 0.5, background: theme }}>
+                  + Add Player
+                </button>
+              </div>
+              {availableProfiles.length === 0 && (
+                <div style={{ fontSize: 12, color: '#555', marginTop: 8 }}>All accounts are already enrolled, or no accounts exist yet.</div>
+              )}
+            </div>
+
+            {players.length === 0 && <div style={{ color: '#555', fontSize: 13, padding: '16px 0' }}>No players enrolled yet.</div>}
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               {players.length > 0 && (
                 <thead>
                   <tr style={{ borderBottom: '1px solid #222' }}>
                     <th style={{ padding: '8px 12px', textAlign: 'left', color: '#666', fontWeight: 600 }}>Player</th>
                     <th style={{ padding: '8px 12px', textAlign: 'left', color: '#666', fontWeight: 600 }}>Color</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'left', color: '#666', fontWeight: 600 }}>Avatar</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'left', color: '#666', fontWeight: 600 }}>Tokens</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'left', color: '#666', fontWeight: 600 }}>CPC</th>
+                    <th style={{ padding: '8px 12px' }}></th>
                   </tr>
                 </thead>
               )}
               <tbody>
                 {players.map(p => (
                   <tr key={p.id} style={{ borderBottom: '1px solid #1a1a1a' }}>
-                    <td style={{ padding: '8px 12px', color: '#ddd', display: 'flex', alignItems: 'center', gap: 10 }}>
-                      {p.avatar_url
-                        ? <img src={p.avatar_url} alt="" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }} />
-                        : <div style={{ width: 28, height: 28, borderRadius: '50%', background: p.color || '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff' }}>{p.name?.charAt(0)}</div>
-                      }
-                      {p.name}
+                    <td style={{ padding: '8px 12px', color: '#ddd' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        {p.avatar_url
+                          ? <img src={p.avatar_url} alt="" style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }} />
+                          : <div style={{ width: 28, height: 28, borderRadius: '50%', background: p.color || '#555', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#fff' }}>{(p.name || p.display_name)?.charAt(0)}</div>
+                        }
+                        {p.name || p.display_name}
+                      </div>
                     </td>
                     <td style={{ padding: '8px 12px' }}>
                       <span style={{ display: 'inline-block', width: 16, height: 16, borderRadius: '50%', background: p.color || '#555', verticalAlign: 'middle', marginRight: 6 }} />
-                      <span style={{ color: '#666', fontSize: 12 }}>{p.color || '—'}</span>
+                      <span style={{ color: '#555', fontSize: 12 }}>{p.color || '—'}</span>
                     </td>
-                    <td style={{ padding: '8px 12px', color: '#555', fontSize: 11, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.avatar_url || '—'}</td>
+                    <td style={{ padding: '8px 12px', color: '#ffd700' }}>🎟️ {p.slot_tokens ?? 0}</td>
+                    <td style={{ padding: '8px 12px', color: '#aaa' }}>🪙 {p.casino_prize_coins ?? 0}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                      <button onClick={() => removePlayer(p.id, p.name || p.display_name)}
+                        style={{ background: 'none', border: '1px solid #4a1010', color: '#ef5350', borderRadius: 5, padding: '3px 10px', fontSize: 12, cursor: 'pointer' }}>
+                        Remove
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -530,22 +672,40 @@ export default function SlotsEditPage() {
         {activeTab === 'store' && (
           <div>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
-              <p style={{ fontSize: 13, opacity: 0.6, margin: 0 }}>Store items players can redeem tokens for. Upserts by label.</p>
+              <span style={{ fontSize: 13, opacity: 0.6 }}>{storeItems.length} items</span>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <CsvImporter
-                  label="slots_store_items"
-                  themeColor={theme}
+                <CsvImporter label="slots_store_items" themeColor={theme}
                   sampleHeaders={['label', 'cost_cpc', 'quantity', 'pays_out_slot_tokens', 'sort_order']}
                   sampleRow={{ label: 'Masterball', cost_cpc: 500, quantity: 1, pays_out_slot_tokens: 'false', sort_order: 0 }}
-                  onImport={importStoreItems}
-                />
+                  onImport={importStoreItems} />
                 <button onClick={exportStoreItems}
                   style={{ background: 'none', border: '1px solid #333', color: '#666', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>
                   ↓ Export CSV
                 </button>
               </div>
             </div>
-            {storeItems.length === 0 && <div style={{ color: '#666', fontSize: 13, padding: '20px 0' }}>No store items yet. Import a CSV to bulk-add them.</div>}
+
+            {/* Inline add */}
+            <div style={{ background: '#111', border: '1px solid #222', borderRadius: 8, padding: 14, marginBottom: 20 }}>
+              <div style={{ fontSize: 12, color: '#888', marginBottom: 10, fontWeight: 600 }}>ADD STORE ITEM</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+                <input value={newItemLabel} onChange={e => setNewItemLabel(e.target.value)}
+                  placeholder="Item label" style={{ ...styles.input, flex: 2, minWidth: 160 }} />
+                <input type="number" value={newItemCost} onChange={e => setNewItemCost(e.target.value)}
+                  placeholder="CPC cost" style={{ ...styles.input, width: 100 }} />
+                <input type="number" value={newItemQty} onChange={e => setNewItemQty(e.target.value)}
+                  placeholder="Qty (∞ if blank)" style={{ ...styles.input, width: 120 }} />
+                <input type="number" value={newItemTokens} onChange={e => setNewItemTokens(e.target.value)}
+                  placeholder="Pays tokens (opt)" style={{ ...styles.input, width: 140 }} />
+                <button onClick={addStoreItem} disabled={!newItemLabel.trim() || !newItemCost}
+                  style={{ ...styles.saveBtn, padding: '8px 18px', marginTop: 0, opacity: (newItemLabel.trim() && newItemCost) ? 1 : 0.5, background: theme }}>
+                  + Add
+                </button>
+              </div>
+              <div style={{ fontSize: 11, color: '#555' }}>Qty blank = unlimited. Pays tokens = token bundle items that award Slot Tokens on purchase.</div>
+            </div>
+
+            {storeItems.length === 0 && <div style={{ color: '#555', fontSize: 13, padding: '16px 0' }}>No store items yet.</div>}
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               {storeItems.length > 0 && (
                 <thead>
@@ -554,20 +714,31 @@ export default function SlotsEditPage() {
                     <th style={{ padding: '8px 12px', textAlign: 'right', color: '#666', fontWeight: 600 }}>Cost (CPC)</th>
                     <th style={{ padding: '8px 12px', textAlign: 'right', color: '#666', fontWeight: 600 }}>Qty</th>
                     <th style={{ padding: '8px 12px', textAlign: 'center', color: '#666', fontWeight: 600 }}>Pays Tokens</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'right', color: '#666', fontWeight: 600 }}>Order</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'center', color: '#666', fontWeight: 600 }}>Status</th>
+                    <th style={{ padding: '8px 12px' }}></th>
                   </tr>
                 </thead>
               )}
               <tbody>
                 {storeItems.map(s => (
-                  <tr key={s.id} style={{ borderBottom: '1px solid #1a1a1a' }}>
+                  <tr key={s.id} style={{ borderBottom: '1px solid #1a1a1a', opacity: s.is_active ? 1 : 0.45 }}>
                     <td style={{ padding: '8px 12px', color: '#ddd' }}>{s.label}</td>
                     <td style={{ padding: '8px 12px', textAlign: 'right', color: '#ffd700' }}>{s.cost_cpc}</td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', color: '#ddd' }}>{s.quantity}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right', color: '#ddd' }}>{s.quantity ?? '∞'}</td>
                     <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                      <span style={{ color: s.pays_out_slot_tokens ? '#4ade80' : '#666' }}>{s.pays_out_slot_tokens ? 'Yes' : 'No'}</span>
+                      <span style={{ color: s.pays_out_slot_tokens ? '#4ade80' : '#555' }}>
+                        {s.pays_out_slot_tokens ? `🎟️ ${s.pays_out_slot_tokens}` : '—'}
+                      </span>
                     </td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', color: '#666' }}>{s.sort_order}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                      <span style={{ fontSize: 11, color: s.is_active ? '#4ade80' : '#555' }}>{s.is_active ? 'Active' : 'Inactive'}</span>
+                    </td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                      <button onClick={() => removeStoreItem(s.id, s.label)}
+                        style={{ background: 'none', border: '1px solid #4a1010', color: '#ef5350', borderRadius: 5, padding: '3px 10px', fontSize: 12, cursor: 'pointer' }}>
+                        Remove
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
