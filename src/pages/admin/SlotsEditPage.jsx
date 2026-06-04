@@ -181,11 +181,12 @@ export default function SlotsEditPage() {
       .from('profiles')
       .select('id, username, email, role')
       .neq('role', 'revoked')
-      .order('username');
+      .order('email');
     if (profErr) {
       setProfilesError('Cannot load accounts — ask an owner to run the profiles RLS fix in Supabase.');
     } else {
-      setAllProfiles(data || []);
+      // Normalize: derive a display name from email prefix since profiles has no username column
+      setAllProfiles((data || []).map(p => ({ ...p, username: p.email?.split('@')[0] || p.id })));
       setProfilesError(null);
     }
   }, []);
