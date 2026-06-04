@@ -190,7 +190,7 @@ export default function SlotsPage() {
   const myTokens = myPlayer?.slot_tokens ?? 0;
   const myCpc = myPlayer?.casino_prize_coins ?? 0;
   const isWin = lastOutcome && lastOutcome.payout_cpc > 0;
-  const isJackpot = lastOutcome?.payout_cpc >= 6809;
+  const isJackpot = lastOutcome?.payout_cpc >= 34045;
 
   return (
     <div style={{ ...styles.page, background: '#0a0a0f' }}>
@@ -529,7 +529,7 @@ export default function SlotsPage() {
               </tbody>
             </table>
             <div style={{ padding: '12px 0', fontSize: 12, opacity: 0.4, textAlign: 'center' }}>
-              ~87% RTP — for every 100 CPC wagered, ~87 CPC is returned on average. Reels spin independently; reel 3 has reduced rare-symbol frequency to create near-miss tension. Two of a kind pays on leftmost 2 reels only.
+              ~87% RTP — per spin wager is 5 CPC (1 token). For every 100 CPC wagered (~20 spins), ~87 CPC is returned on average over a large sample. Reels spin independently; reel 3 has reduced rare-symbol frequency to create near-miss tension. Two of a kind pays on leftmost 2 reels only.
             </div>
           </div>
         )}
