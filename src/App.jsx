@@ -35,6 +35,7 @@ import SlotsEventDetailPage from './pages/admin/SlotsEventDetailPage';
 import SlotsScoreEntryPage from './pages/admin/SlotsScoreEntryPage';
 import SlotsEditPage from './pages/admin/SlotsEditPage';
 import OwnerPage from './pages/admin/OwnerPage';
+import StaffPanel from './pages/admin/StaffPanel';
 import AuditLogPage from './pages/admin/AuditLogPage';
 import PlayerPage from './pages/player/PlayerPage';
 
@@ -44,6 +45,30 @@ function RequireAuth({ children }) {
   const { user, loading } = useAuth();
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
+
+// Scorer, event_runner, owner — blocks players
+function RequireStaff({ children }) {
+  const { user, profile, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <Navigate to="/login" replace />;
+  const staffRoles = ['scorer', 'event_runner', 'owner'];
+  if (profile && !staffRoles.includes(profile.role)) {
+    return <Navigate to={profile.role === 'player' ? '/player' : '/'} replace />;
+  }
+  return children;
+}
+
+// Event_runner or owner — blocks scorers and players
+function RequireRunner({ children }) {
+  const { user, profile, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <Navigate to="/login" replace />;
+  const runnerRoles = ['event_runner', 'owner'];
+  if (profile && !runnerRoles.includes(profile.role)) {
+    return <Navigate to="/admin" replace />;
+  }
   return children;
 }
 
@@ -88,36 +113,39 @@ export default function App() {
           <Route path="/admin/owner" element={<RequireOwner><OwnerPage /></RequireOwner>} />
           <Route path="/admin/audit" element={<RequireOwner><AuditLogPage /></RequireOwner>} />
 
-          {/* Admin */}
-          <Route path="/admin" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
-          <Route path="/admin/events/create" element={<RequireAuth><CreateEventPage /></RequireAuth>} />
+          {/* Staff Panel — event_runner and owner */}
+          <Route path="/admin/panel" element={<RequireRunner><StaffPanel /></RequireRunner>} />
+
+          {/* Admin dashboard — all staff */}
+          <Route path="/admin" element={<RequireStaff><AdminDashboard /></RequireStaff>} />
+          <Route path="/admin/events/create" element={<RequireRunner><CreateEventPage /></RequireRunner>} />
           <Route path="/admin/change-password" element={<RequireAuth><ChangePasswordPage /></RequireAuth>} />
 
-          {/* All-Play admin */}
-          <Route path="/admin/events/:id" element={<RequireAuth><EventDetailPage /></RequireAuth>} />
-          <Route path="/admin/events/:id/edit" element={<RequireAuth><AllPlayEditPage /></RequireAuth>} />
-          <Route path="/admin/events/:id/scores" element={<RequireAuth><ScoreEntryPage /></RequireAuth>} />
-          <Route path="/admin/events/:id/export" element={<RequireAuth><ExportPage /></RequireAuth>} />
+          {/* All-Play — score entry: RequireStaff; management: RequireRunner */}
+          <Route path="/admin/events/:id" element={<RequireRunner><EventDetailPage /></RequireRunner>} />
+          <Route path="/admin/events/:id/edit" element={<RequireRunner><AllPlayEditPage /></RequireRunner>} />
+          <Route path="/admin/events/:id/scores" element={<RequireStaff><ScoreEntryPage /></RequireStaff>} />
+          <Route path="/admin/events/:id/export" element={<RequireRunner><ExportPage /></RequireRunner>} />
 
-          {/* Board Game admin */}
-          <Route path="/admin/board/:eventId" element={<RequireAuth><BoardGameEventDetailPage /></RequireAuth>} />
-          <Route path="/admin/board/:eventId/scores" element={<RequireAuth><BoardGameScoreEntryPage /></RequireAuth>} />
-          <Route path="/admin/board/:eventId/edit" element={<RequireAuth><BoardGameEditPage /></RequireAuth>} />
+          {/* Board Game — score entry: RequireStaff; management: RequireRunner */}
+          <Route path="/admin/board/:eventId" element={<RequireRunner><BoardGameEventDetailPage /></RequireRunner>} />
+          <Route path="/admin/board/:eventId/scores" element={<RequireStaff><BoardGameScoreEntryPage /></RequireStaff>} />
+          <Route path="/admin/board/:eventId/edit" element={<RequireRunner><BoardGameEditPage /></RequireRunner>} />
 
-          {/* High Score admin */}
-          <Route path="/admin/highscore/:id" element={<RequireAuth><HighScoreEventDetailPage /></RequireAuth>} />
-          <Route path="/admin/highscore/:id/scores" element={<RequireAuth><HighScoreScoreEntryPage /></RequireAuth>} />
-          <Route path="/admin/highscore/:id/edit" element={<RequireAuth><HighScoreEditPage /></RequireAuth>} />
+          {/* High Score */}
+          <Route path="/admin/highscore/:id" element={<RequireRunner><HighScoreEventDetailPage /></RequireRunner>} />
+          <Route path="/admin/highscore/:id/scores" element={<RequireStaff><HighScoreScoreEntryPage /></RequireStaff>} />
+          <Route path="/admin/highscore/:id/edit" element={<RequireRunner><HighScoreEditPage /></RequireRunner>} />
 
-          {/* Bingo admin */}
-          <Route path="/admin/bingo/:eventId" element={<RequireAuth><BingoEventDetailPage /></RequireAuth>} />
-          <Route path="/admin/bingo/:eventId/scores" element={<RequireAuth><BingoScoreEntryPage /></RequireAuth>} />
-          <Route path="/admin/bingo/:eventId/edit" element={<RequireAuth><BingoEditPage /></RequireAuth>} />
+          {/* Bingo */}
+          <Route path="/admin/bingo/:eventId" element={<RequireRunner><BingoEventDetailPage /></RequireRunner>} />
+          <Route path="/admin/bingo/:eventId/scores" element={<RequireStaff><BingoScoreEntryPage /></RequireStaff>} />
+          <Route path="/admin/bingo/:eventId/edit" element={<RequireRunner><BingoEditPage /></RequireRunner>} />
 
-          {/* Slots admin */}
-          <Route path="/admin/slots/:eventId" element={<RequireAuth><SlotsEventDetailPage /></RequireAuth>} />
-          <Route path="/admin/slots/:eventId/scores" element={<RequireAuth><SlotsScoreEntryPage /></RequireAuth>} />
-          <Route path="/admin/slots/:eventId/edit" element={<RequireAuth><SlotsEditPage /></RequireAuth>} />
+          {/* Slots */}
+          <Route path="/admin/slots/:eventId" element={<RequireRunner><SlotsEventDetailPage /></RequireRunner>} />
+          <Route path="/admin/slots/:eventId/scores" element={<RequireStaff><SlotsScoreEntryPage /></RequireStaff>} />
+          <Route path="/admin/slots/:eventId/edit" element={<RequireRunner><SlotsEditPage /></RequireRunner>} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
