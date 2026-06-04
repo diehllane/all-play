@@ -111,6 +111,7 @@ export default function SlotsEditPage() {
   const [storeItems, setStoreItems] = useState([]);
   const [players, setPlayers] = useState([]);
   const [allProfiles, setAllProfiles] = useState([]);
+  const [profilesError, setProfilesError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('config');
@@ -139,14 +140,12 @@ export default function SlotsEditPage() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [evRes, cfgRes, catRes, storeRes, playersRes, profilesRes] = await Promise.all([
+      const [evRes, cfgRes, catRes, storeRes, playersRes] = await Promise.all([
         supabase.from('events').select('*').eq('id', eventId).single(),
         supabase.from('slots_config').select('*').eq('event_id', eventId).single(),
         supabase.from('slots_categories').select('*').eq('event_id', eventId).order('sort_order'),
         supabase.from('slots_store_items').select('*').eq('event_id', eventId).order('sort_order'),
         supabase.from('slots_players').select('*').eq('event_id', eventId).order('sort_order'),
-        // Load all non-revoked profiles for the player dropdown
-        supabase.from('profiles').select('id, username, email, role').neq('role', 'revoked').order('username'),
       ]);
       if (evRes.error) throw evRes.error;
       setEvent(evRes.data);
@@ -169,7 +168,6 @@ export default function SlotsEditPage() {
       setCategories(catRes.data || []);
       setStoreItems(storeRes.data || []);
       setPlayers(playersRes.data || []);
-      setAllProfiles(profilesRes.data || []);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -177,7 +175,22 @@ export default function SlotsEditPage() {
     }
   }, [eventId]);
 
-  useEffect(() => { loadAll(); }, [loadAll]);
+  // Load profiles separately — may fail for non-owners without the RLS policy fix
+  const loadProfiles = useCallback(async () => {
+    const { data, error: profErr } = await supabase
+      .from('profiles')
+      .select('id, username, email, role')
+      .neq('role', 'revoked')
+      .order('username');
+    if (profErr) {
+      setProfilesError('Cannot load accounts — ask an owner to run the profiles RLS fix in Supabase.');
+    } else {
+      setAllProfiles(data || []);
+      setProfilesError(null);
+    }
+  }, []);
+
+  useEffect(() => { loadAll(); loadProfiles(); }, [loadAll, loadProfiles]);
 
   if (!canManage) return <div style={styles.center}>Access denied.</div>;
   if (loading) return <div style={styles.center}>Loading…</div>;
@@ -271,7 +284,6 @@ export default function SlotsEditPage() {
     if (!selectedProfileId) return;
     const prof = allProfiles.find(p => p.id === selectedProfileId);
     if (!prof) return;
-    // Use username if set, fall back to email prefix
     const displayName = prof.username || prof.email?.split('@')[0] || 'Unknown';
     const { error: e } = await supabase.from('slots_players').insert({
       event_id: eventId,
@@ -341,7 +353,8 @@ export default function SlotsEditPage() {
   const addStoreItem = async () => {
     const label = newItemLabel.trim();
     if (!label || !newItemCost) return;
-    const { error: e } = await supabase.from('slots_store_items').insert({
+    // Omit sort_order from insert — default 0 from DB, avoids schema cache error if column was just added
+    const insertPayload = {
       event_id: eventId,
       label,
       cost_cpc: parseInt(newItemCost) || 0,
@@ -349,9 +362,25 @@ export default function SlotsEditPage() {
       quantity_remaining: newItemQty ? parseInt(newItemQty) : null,
       pays_out_slot_tokens: newItemTokens ? parseInt(newItemTokens) : null,
       is_active: true,
-      sort_order: storeItems.length,
-    });
-    if (e) { flash('Error: ' + e.message); return; }
+    };
+    // Only include sort_order if column confirmed to exist (post-migration)
+    try {
+      const { error: e } = await supabase.from('slots_store_items').insert({
+        ...insertPayload,
+        sort_order: storeItems.length,
+      });
+      if (e) {
+        // Fallback: retry without sort_order if column missing
+        if (e.message?.includes('sort_order')) {
+          const { error: e2 } = await supabase.from('slots_store_items').insert(insertPayload);
+          if (e2) { flash('Error: ' + e2.message); return; }
+        } else {
+          flash('Error: ' + e.message); return;
+        }
+      }
+    } catch (err) {
+      flash('Error: ' + err.message); return;
+    }
     setNewItemLabel(''); setNewItemCost(''); setNewItemQty(''); setNewItemTokens('');
     await loadAll();
   };
@@ -373,9 +402,9 @@ export default function SlotsEditPage() {
       const sortOrder = parseInt(row['sort_order']) || imported;
       const existing = storeItems.find(s => s.label?.toLowerCase() === label.toLowerCase());
       if (existing) {
-        await supabase.from('slots_store_items').update({ cost_cpc: cost, quantity: qty, pays_out_slot_tokens: paysOut, sort_order: sortOrder }).eq('id', existing.id);
+        await supabase.from('slots_store_items').update({ cost_cpc: cost, quantity: qty, pays_out_slot_tokens: paysOut }).eq('id', existing.id);
       } else {
-        await supabase.from('slots_store_items').insert({ event_id: eventId, label, cost_cpc: cost, quantity: qty, quantity_remaining: qty, pays_out_slot_tokens: paysOut, sort_order: sortOrder, is_active: true });
+        await supabase.from('slots_store_items').insert({ event_id: eventId, label, cost_cpc: cost, quantity: qty, quantity_remaining: qty, pays_out_slot_tokens: paysOut, is_active: true });
       }
       imported++;
     }
@@ -395,10 +424,9 @@ export default function SlotsEditPage() {
     );
   };
 
-  // Profiles not yet in this event
-  const availableProfiles = allProfiles.filter(
-    prof => !players.some(p => p.profile_id === prof.id || (p.name || p.display_name)?.toLowerCase() === (prof.username || '').toLowerCase())
-  );
+  // Profiles not yet in this event — deduplicate strictly by profile_id
+  const enrolledProfileIds = new Set(players.map(p => p.profile_id).filter(Boolean));
+  const availableProfiles = allProfiles.filter(prof => !enrolledProfileIds.has(prof.id));
 
   return (
     <div style={styles.page}>
@@ -599,28 +627,38 @@ export default function SlotsEditPage() {
             {/* Inline add from profiles */}
             <div style={{ background: '#111', border: '1px solid #222', borderRadius: 8, padding: 14, marginBottom: 20 }}>
               <div style={{ fontSize: 12, color: '#888', marginBottom: 10, fontWeight: 600 }}>ADD PLAYER FROM ACCOUNT</div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <select value={selectedProfileId} onChange={e => setSelectedProfileId(e.target.value)}
-                  style={{ ...styles.input, flex: 2, minWidth: 200 }}>
-                  <option value="">Select account…</option>
-                  {availableProfiles.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.username || p.email?.split('@')[0]} ({p.role})
-                    </option>
-                  ))}
-                </select>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <label style={{ fontSize: 12, color: '#888' }}>Color</label>
-                  <input type="color" value={newPlayerColor} onChange={e => setNewPlayerColor(e.target.value)}
-                    style={{ width: 40, height: 34, border: 'none', background: 'none', cursor: 'pointer' }} />
+              {profilesError ? (
+                <div style={{ fontSize: 12, color: '#ef5350', padding: '8px 0' }}>
+                  ⚠️ {profilesError}
+                  <div style={{ color: '#666', marginTop: 4 }}>You can still use CSV import to add players by name.</div>
                 </div>
-                <button onClick={addPlayer} disabled={!selectedProfileId}
-                  style={{ ...styles.saveBtn, padding: '8px 18px', marginTop: 0, opacity: selectedProfileId ? 1 : 0.5, background: theme }}>
-                  + Add Player
-                </button>
-              </div>
-              {availableProfiles.length === 0 && (
-                <div style={{ fontSize: 12, color: '#555', marginTop: 8 }}>All accounts are already enrolled, or no accounts exist yet.</div>
+              ) : (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <select value={selectedProfileId} onChange={e => setSelectedProfileId(e.target.value)}
+                    style={{ ...styles.input, flex: 2, minWidth: 200 }}>
+                    <option value="">Select account…</option>
+                    {availableProfiles.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.username || p.email?.split('@')[0]} ({p.role})
+                      </option>
+                    ))}
+                  </select>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <label style={{ fontSize: 12, color: '#888' }}>Color</label>
+                    <input type="color" value={newPlayerColor} onChange={e => setNewPlayerColor(e.target.value)}
+                      style={{ width: 40, height: 34, border: 'none', background: 'none', cursor: 'pointer' }} />
+                  </div>
+                  <button onClick={addPlayer} disabled={!selectedProfileId}
+                    style={{ ...styles.saveBtn, padding: '8px 18px', marginTop: 0, opacity: selectedProfileId ? 1 : 0.5, background: theme }}>
+                    + Add Player
+                  </button>
+                </div>
+              )}
+              {!profilesError && availableProfiles.length === 0 && allProfiles.length > 0 && (
+                <div style={{ fontSize: 12, color: '#555', marginTop: 8 }}>All accounts are already enrolled.</div>
+              )}
+              {!profilesError && allProfiles.length === 0 && (
+                <div style={{ fontSize: 12, color: '#555', marginTop: 8 }}>No accounts found. Use CSV import to add players by name.</div>
               )}
             </div>
 
