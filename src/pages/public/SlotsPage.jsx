@@ -483,7 +483,7 @@ export default function SlotsPage() {
           <div style={styles.panelWrap}>
             <div style={styles.panelHeader}>
               <span style={{ ...styles.sectionTitle, color: theme }}>📋 Pay Table</span>
-              <span style={{ fontSize: 12, color: '#888' }}>Reel-driven evaluation · Near-miss reel 3</span>
+              <span style={{ fontSize: 12, color: '#888' }}>~87% RTP · Reel-driven · Near-miss reel 3</span>
             </div>
 
             {/* Win condition rules */}
@@ -539,7 +539,7 @@ export default function SlotsPage() {
               </tbody>
             </table>
             <div style={{ padding: '12px 0', fontSize: 12, opacity: 0.4, textAlign: 'center' }}>
-              Reels spin independently. Reel 3 has reduced odds on rare symbols to create near-miss tension.
+              ~87% RTP — for every 100 CPC wagered, ~87 CPC is returned on average. Reels spin independently; reel 3 has reduced rare-symbol frequency to create near-miss tension. Two of a kind pays on leftmost 2 reels only.
             </div>
           </div>
         )}
