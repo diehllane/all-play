@@ -665,6 +665,7 @@ function SlotsWizard() {
         slug: autoSlug,
         event_type: 'slots',
         status: 'active',
+        division_count: 1,          // ← required non-null column
         created_by: user?.id,
       }).select().single();
       if (evErr) throw evErr;
