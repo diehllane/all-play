@@ -483,12 +483,29 @@ export default function SlotsPage() {
           <div style={styles.panelWrap}>
             <div style={styles.panelHeader}>
               <span style={{ ...styles.sectionTitle, color: theme }}>📋 Pay Table</span>
-              <span style={{ fontSize: 12, color: '#888' }}>Fixed 85% RTP · 10,000 weight pool</span>
+              <span style={{ fontSize: 12, color: '#888' }}>Reel-driven evaluation · Near-miss reel 3</span>
             </div>
+
+            {/* Win condition rules */}
+            <div style={styles.rulesBox}>
+              <div style={styles.ruleRow}>
+                <span style={styles.ruleIcon}>3️⃣</span>
+                <span><strong>Three of a Kind</strong> — all 3 reels show the same symbol</span>
+              </div>
+              <div style={styles.ruleRow}>
+                <span style={styles.ruleIcon}>2️⃣</span>
+                <span><strong>Two of a Kind</strong> — leftmost 2 reels match (reel 3 is the confirmer — near-miss counts!)</span>
+              </div>
+              <div style={styles.ruleRow}>
+                <span style={styles.ruleIcon}>✨</span>
+                <span><strong>Scatter</strong> — symbol appears on any reel, pays regardless of position</span>
+              </div>
+            </div>
+
             <table style={styles.table}>
               <thead>
                 <tr>
-                  {['Outcome','Symbols','Payout (CPC)','Probability'].map(h => (
+                  {['Outcome','Symbols','Type','Payout (CPC)'].map(h => (
                     <th key={h} style={styles.th}>{h}</th>
                   ))}
                 </tr>
@@ -507,20 +524,22 @@ export default function SlotsPage() {
                             : getDefaultEmoji(s)}
                         </span>
                       ))}
-                      {row.category === 'scatter' && <span style={{ fontSize: 11, opacity: 0.5, marginLeft: 4 }}>(any reel)</span>}
+                    </td>
+                    <td style={{ ...styles.td, fontSize: 12 }}>
+                      {row.category === 'jackpot' && <span style={{ color: '#FFD700' }}>Jackpot</span>}
+                      {row.category === 'three_of_a_kind' && <span style={{ color: '#90CAF9' }}>3 of a Kind</span>}
+                      {row.category === 'two_of_a_kind' && <span style={{ color: '#aaa' }}>2 of a Kind <span style={{ opacity: 0.5 }}>(reels 1+2)</span></span>}
+                      {row.category === 'scatter' && <span style={{ color: '#ce93d8' }}>Scatter (any reel)</span>}
                     </td>
                     <td style={{ ...styles.tdNum, color: row.payout_cpc > 100 ? '#FFD700' : row.payout_cpc > 10 ? '#90CAF9' : '#ccc', fontWeight: 700 }}>
                       {row.payout_cpc.toLocaleString()}
-                    </td>
-                    <td style={{ ...styles.tdNum, color: '#888', fontSize: 12 }}>
-                      {((row.weight / 100)).toFixed(2)}%
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
             <div style={{ padding: '12px 0', fontSize: 12, opacity: 0.4, textAlign: 'center' }}>
-              Per 1,000 tokens wagered: avg 4,250 CPC returned (85% RTP). House edge: 750 CPC / 5,000 wagered.
+              Reels spin independently. Reel 3 has reduced odds on rare symbols to create near-miss tension.
             </div>
           </div>
         )}
@@ -574,6 +593,9 @@ const styles = {
   panelHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
   sectionTitle: { fontSize: 18, fontWeight: 700 },
   flashMsg: { padding: '10px 16px', borderRadius: 8, border: '1px solid', marginBottom: 16, fontSize: 13 },
+  rulesBox: { background: '#111', border: '1px solid #222', borderRadius: 10, padding: '14px 18px', marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 10 },
+  ruleRow: { display: 'flex', alignItems: 'flex-start', gap: 10, fontSize: 13, color: '#ccc' },
+  ruleIcon: { fontSize: 16, flexShrink: 0, marginTop: 1 },
   storeGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16 },
   storeCard: { background: '#111', borderRadius: 10, border: '1px solid', overflow: 'hidden' },
   storeCardBody: { padding: 14 },
