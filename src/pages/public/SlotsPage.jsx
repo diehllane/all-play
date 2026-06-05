@@ -164,6 +164,8 @@ export default function SlotsPage() {
   const [spinError, setSpinError] = useState(null);
   const [isSpinning, setIsSpinning] = useState(false);
   const [isRevealing, setIsRevealing] = useState(false); // reels stopping, outcome not yet shown
+  const [cooldownLeft, setCooldownLeft] = useState(0); // seconds until next spin allowed
+  const cooldownRef = React.useRef(null);
 
   // UI state
   const [activeTab, setActiveTab] = useState('machine');
@@ -230,7 +232,7 @@ export default function SlotsPage() {
   const handleSpin = async () => {
     if (!user || !myPlayer) return;
     if (myPlayer.slot_tokens < 1) { setSpinError('No tokens remaining.'); return; }
-    if (isSpinning) return;
+    if (isSpinning || cooldownLeft > 0) return;
     setIsSpinning(true);
     setSpinError(null);
     setLastOutcome(null);
@@ -262,12 +264,33 @@ export default function SlotsPage() {
       setLastOutcome(result);
       setSpinState('result_shown');
 
+      // Start 5-second cooldown (12 spins/min max)
+      const COOLDOWN_SECS = 5;
+      setCooldownLeft(COOLDOWN_SECS);
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
+      cooldownRef.current = setInterval(() => {
+        setCooldownLeft(prev => {
+          if (prev <= 1) { clearInterval(cooldownRef.current); return 0; }
+          return prev - 1;
+        });
+      }, 1000);
+
       await loadMyPlayer();
       if (myPlayer) await loadRecentSpins(myPlayer.id);
       await loadAll();
     } catch (e) {
       setSpinError(e.message);
       setSpinState('idle');
+      // Still apply a short cooldown on error to prevent hammering
+      const COOLDOWN_SECS = 4;
+      setCooldownLeft(COOLDOWN_SECS);
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
+      cooldownRef.current = setInterval(() => {
+        setCooldownLeft(prev => {
+          if (prev <= 1) { clearInterval(cooldownRef.current); return 0; }
+          return prev - 1;
+        });
+      }, 1000);
     } finally {
       setIsSpinning(false);
     }
@@ -416,16 +439,16 @@ export default function SlotsPage() {
               <div style={{ textAlign: 'center', paddingBottom: 20 }}>
                 <button
                   onClick={handleSpin}
-                  disabled={!user || !myPlayer || isSpinning || myTokens < 1}
+                  disabled={!user || !myPlayer || isSpinning || isRevealing || myTokens < 1 || cooldownLeft > 0}
                   title={!user ? 'Log in to spin' : !myPlayer ? 'Not enrolled' : myTokens < 1 ? 'No tokens' : 'Spin!'}
                   style={{
                     ...styles.spinBtn,
                     background: isSpinning ? '#333' : theme,
                     boxShadow: isSpinning ? 'none' : `0 0 20px ${theme}88`,
-                    cursor: (!user || !myPlayer || myTokens < 1 || isSpinning) ? 'not-allowed' : 'pointer',
-                    opacity: (!user || !myPlayer || myTokens < 1) && !isSpinning ? 0.5 : 1,
+                    cursor: (!user || !myPlayer || myTokens < 1 || isSpinning || isRevealing || cooldownLeft > 0) ? 'not-allowed' : 'pointer',
+                    opacity: (!user || !myPlayer || myTokens < 1 || cooldownLeft > 0) && !isSpinning && !isRevealing ? 0.5 : 1,
                   }}>
-                  {isSpinning ? '⏳ SPINNING' : '🎰 SPIN (1 🎟️)'}
+                  {isSpinning || isRevealing ? '⏳ SPINNING' : cooldownLeft > 0 ? `⏱ ${cooldownLeft}s` : '🎰 SPIN (1 🎟️)'}
                 </button>
               </div>
             </div>
