@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -28,6 +28,120 @@ const SYMBOL_IMAGES = {
   berry:      '/all-play/images/slots/berry.png',
 };
 
+// Symbol colors for spinning placeholder strips
+const SYMBOL_COLORS = {
+  masterball: '#9c27b0',
+  pokeball:   '#e53935',
+  greatball:  '#1565c0',
+  ultraball:  '#f9a825',
+  pikachu:    '#f57f17',
+  eevee:      '#8d6e63',
+  rare_candy: '#e91e63',
+  potion:     '#43a047',
+  berry:      '#6a1b9a',
+};
+
+// Animated spinning reel component
+// Shows a blurred scrolling strip of colored blocks while spinning,
+// then snaps to the actual symbol image on result.
+function SpinningReel({ symbol, isSpinning, stopDelay, theme, getSymbolImg, SYMBOL_COLORS, ALL_SYMBOLS }) {
+  const stripRef = React.useRef(null);
+  const animRef  = React.useRef(null);
+  const [stopped, setStopped] = React.useState(true);
+
+  React.useEffect(() => {
+    if (isSpinning) {
+      setStopped(false);
+      // Start CSS animation immediately
+      if (stripRef.current) {
+        stripRef.current.style.transition = 'none';
+        stripRef.current.style.transform  = 'translateY(0px)';
+      }
+    } else {
+      // Stop after delay for stagger effect
+      const t = setTimeout(() => setStopped(true), stopDelay);
+      return () => clearTimeout(t);
+    }
+  }, [isSpinning, stopDelay]);
+
+  // Generate a fixed strip of 12 random colored blocks for the scroll
+  const strip = React.useMemo(() => {
+    const syms = [...ALL_SYMBOLS, ...ALL_SYMBOLS, ...ALL_SYMBOLS, ...ALL_SYMBOLS];
+    // Shuffle
+    for (let i = syms.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [syms[i], syms[j]] = [syms[j], syms[i]];
+    }
+    return syms.slice(0, 12);
+  }, []); // only generate once per mount
+
+  const BLOCK_H = 68; // height of each strip block in px
+
+  return (
+    <div style={{
+      width: 120, height: 100,
+      border: `2px solid ${theme}`,
+      borderRadius: 10,
+      overflow: 'hidden',
+      position: 'relative',
+      background: 'rgba(0,0,0,0.5)',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+    }}>
+      {!stopped ? (
+        // Spinning: scrolling colored blocks
+        <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+          <style>{`
+            @keyframes reelScroll {
+              0%   { transform: translateY(0); }
+              100% { transform: translateY(-${BLOCK_H * strip.length / 2}px); }
+            }
+          `}</style>
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            animation: `reelScroll ${0.35}s linear infinite`,
+            filter: 'blur(2px)',
+          }}>
+            {[...strip, ...strip].map((sym, i) => (
+              <div key={i} style={{
+                height: BLOCK_H,
+                minHeight: BLOCK_H,
+                width: 120,
+                background: SYMBOL_COLORS[sym] + '88',
+                borderBottom: '2px solid rgba(0,0,0,0.3)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                <div style={{
+                  width: 32, height: 32,
+                  borderRadius: '50%',
+                  background: SYMBOL_COLORS[sym],
+                  opacity: 0.7,
+                }} />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        // Stopped: show actual symbol
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 56 }}>
+            {getSymbolImg(symbol, 48)}
+          </div>
+          <div style={{ fontSize: 11, color: '#ccc', marginTop: 2 }}>
+            {symbol?.replace('_', ' ')}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+
 export default function SlotsPage() {
   const { eventId } = useParams();
   const { user, profile } = useAuth();
@@ -49,6 +163,7 @@ export default function SlotsPage() {
   const [lastOutcome, setLastOutcome] = useState(null);
   const [spinError, setSpinError] = useState(null);
   const [isSpinning, setIsSpinning] = useState(false);
+  const [isRevealing, setIsRevealing] = useState(false); // reels stopping, outcome not yet shown
 
   // UI state
   const [activeTab, setActiveTab] = useState('machine');
@@ -131,8 +246,19 @@ export default function SlotsPage() {
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'Spin failed');
 
-      await new Promise(r => setTimeout(r, 1800));
+      // Wait 800ms of spinning before starting stagger-stop sequence
+      await new Promise(r => setTimeout(r, 800));
+
+      // Set result reels now — SpinningReel will use them once stopped
       setReels(result.reels);
+
+      // isSpinning → false triggers stagger: reel 1 stops at 0ms, reel 2 at 500ms, reel 3 at 1000ms
+      // We reveal outcome after the last reel has stopped (1000ms + buffer)
+      setIsRevealing(true);
+      setIsSpinning(false);
+      await new Promise(r => setTimeout(r, 1200));
+
+      setIsRevealing(false);
       setLastOutcome(result);
       setSpinState('result_shown');
 
@@ -251,31 +377,27 @@ export default function SlotsPage() {
                 </span>
               </div>
 
-              {/* Reels */}
+              {/* Reels — stagger-stop left to right for casino feel */}
               <div style={styles.reelWindow}>
                 {reels.map((sym, i) => (
-                  <div key={i} style={{
-                    ...styles.reel,
-                    borderColor: theme,
-                    animation: isSpinning ? `reelSpin 0.15s linear infinite` : 'none',
-                    animationDelay: `${i * 0.05}s`,
-                    background: isWin ? `rgba(${hexToRgb(theme)},0.1)` : 'rgba(0,0,0,0.5)',
-                  }}>
-                    <div style={styles.reelInner}>
-                      {getSymbolImg(sym, 48)}
-                    </div>
-                    <div style={{ ...styles.reelLabel, color: isSpinning ? 'transparent' : '#ccc' }}>
-                      {SYMBOL_LABELS[sym] || sym}
-                    </div>
-                  </div>
+                  <SpinningReel
+                    key={i}
+                    symbol={sym}
+                    isSpinning={isSpinning}
+                    stopDelay={i * 500}
+                    theme={theme}
+                    getSymbolImg={getSymbolImg}
+                    SYMBOL_COLORS={SYMBOL_COLORS}
+                    ALL_SYMBOLS={ALL_SYMBOLS}
+                  />
                 ))}
               </div>
 
               <div style={{ ...styles.payline, borderColor: `${theme}88` }} />
 
               <div style={styles.resultBanner}>
-                {isSpinning && <div style={{ color: '#888', fontSize: 14, letterSpacing: 2 }}>SPINNING…</div>}
-                {!isSpinning && lastOutcome && (
+                {(isSpinning || isRevealing) && <div style={{ color: '#888', fontSize: 14, letterSpacing: 2 }}>SPINNING…</div>}
+                {!isSpinning && !isRevealing && lastOutcome && (
                   <div style={{
                     color: isJackpot ? '#FFD700' : isWin ? '#4CAF50' : '#888',
                     fontSize: isJackpot ? 22 : 16,
@@ -285,7 +407,7 @@ export default function SlotsPage() {
                     {isJackpot ? '🏆 JACKPOT! 🏆' : isWin ? `+${lastOutcome.payout_cpc} CPC` : 'No Win'}
                   </div>
                 )}
-                {!isSpinning && !lastOutcome && !spinError && (
+                {!isSpinning && !isRevealing && !lastOutcome && !spinError && (
                   <div style={{ color: '#555', fontSize: 12 }}>Press SPIN to play</div>
                 )}
                 {spinError && <div style={{ color: '#f44', fontSize: 13 }}>{spinError}</div>}
@@ -541,13 +663,7 @@ export default function SlotsPage() {
         )}
       </div>
 
-      <style>{`
-        @keyframes reelSpin {
-          0% { transform: translateY(0); }
-          50% { transform: translateY(-6px); }
-          100% { transform: translateY(0); }
-        }
-      `}</style>
+
     </div>
   );
 }
