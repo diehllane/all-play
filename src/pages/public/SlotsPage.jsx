@@ -6,7 +6,7 @@ import { purchaseStoreItem, setPrizePaid } from '../../lib/slots';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
-const SPIN_COOLDOWN_SECS = 3; // max 20 spins/min — change here to adjust
+const SPIN_COOLDOWN_SECS = 4; // max 15 spins/min — change here to adjust
 
 const ALL_SYMBOLS = ['masterball','pokeball','greatball','ultraball','pikachu','eevee','rare_candy','potion','berry'];
 
@@ -240,6 +240,16 @@ export default function SlotsPage() {
     setLastOutcome(null);
     setSpinState('spinning');
 
+    // Start cooldown immediately on spin press
+    setCooldownLeft(SPIN_COOLDOWN_SECS);
+    if (cooldownRef.current) clearInterval(cooldownRef.current);
+    cooldownRef.current = setInterval(() => {
+      setCooldownLeft(prev => {
+        if (prev <= 1) { clearInterval(cooldownRef.current); return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(`${SUPABASE_URL}/functions/v1/slots-spin`, {
@@ -266,15 +276,7 @@ export default function SlotsPage() {
       setLastOutcome(result);
       setSpinState('result_shown');
 
-      // Start cooldown
-      setCooldownLeft(SPIN_COOLDOWN_SECS);
-      if (cooldownRef.current) clearInterval(cooldownRef.current);
-      cooldownRef.current = setInterval(() => {
-        setCooldownLeft(prev => {
-          if (prev <= 1) { clearInterval(cooldownRef.current); return 0; }
-          return prev - 1;
-        });
-      }, 1000);
+
 
       await loadMyPlayer();
       if (myPlayer) await loadRecentSpins(myPlayer.id);
@@ -282,15 +284,7 @@ export default function SlotsPage() {
     } catch (e) {
       setSpinError(e.message);
       setSpinState('idle');
-      // Still apply cooldown on error
-      setCooldownLeft(SPIN_COOLDOWN_SECS);
-      if (cooldownRef.current) clearInterval(cooldownRef.current);
-      cooldownRef.current = setInterval(() => {
-        setCooldownLeft(prev => {
-          if (prev <= 1) { clearInterval(cooldownRef.current); return 0; }
-          return prev - 1;
-        });
-      }, 1000);
+
     } finally {
       setIsSpinning(false);
     }
