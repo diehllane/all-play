@@ -16,8 +16,6 @@ const SYMBOL_LABELS = {
   rare_candy: 'Rare Candy', potion: 'Potion', berry: 'Berry',
 };
 
-// Hardcoded symbol images served from the repo's public/images/slots/ folder.
-// These are used on the reels and in the pay table.
 const SYMBOL_IMAGES = {
   masterball: '/all-play/images/slots/masterball.png',
   pokeball:   '/all-play/images/slots/pokeball.png',
@@ -30,7 +28,6 @@ const SYMBOL_IMAGES = {
   berry:      '/all-play/images/slots/berry.png',
 };
 
-// Symbol colors for spinning placeholder strips
 const SYMBOL_COLORS = {
   masterball: '#9c27b0',
   pokeball:   '#e53935',
@@ -43,41 +40,28 @@ const SYMBOL_COLORS = {
   berry:      '#6a1b9a',
 };
 
-// Animated spinning reel component
-// Shows a blurred scrolling strip of colored blocks while spinning,
-// then snaps to the actual symbol image on result.
-function SpinningReel({ symbol, isSpinning, stopDelay, theme, getSymbolImg, SYMBOL_COLORS, ALL_SYMBOLS }) {
-  const stripRef = React.useRef(null);
-  const animRef  = React.useRef(null);
+function SpinningReel({ symbol, isSpinning, stopDelay, theme, getSymbolImg }) {
   const [stopped, setStopped] = React.useState(true);
 
   React.useEffect(() => {
     if (isSpinning) {
       setStopped(false);
-      // Start CSS animation immediately
-      if (stripRef.current) {
-        stripRef.current.style.transition = 'none';
-        stripRef.current.style.transform  = 'translateY(0px)';
-      }
     } else {
-      // Stop after delay for stagger effect
       const t = setTimeout(() => setStopped(true), stopDelay);
       return () => clearTimeout(t);
     }
   }, [isSpinning, stopDelay]);
 
-  // Generate a fixed strip of 12 random colored blocks for the scroll
   const strip = React.useMemo(() => {
     const syms = [...ALL_SYMBOLS, ...ALL_SYMBOLS, ...ALL_SYMBOLS, ...ALL_SYMBOLS];
-    // Shuffle
     for (let i = syms.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [syms[i], syms[j]] = [syms[j], syms[i]];
     }
     return syms.slice(0, 12);
-  }, []); // only generate once per mount
+  }, []);
 
-  const BLOCK_H = 68; // height of each strip block in px
+  const BLOCK_H = 68;
 
   return (
     <div style={{
@@ -93,7 +77,6 @@ function SpinningReel({ symbol, isSpinning, stopDelay, theme, getSymbolImg, SYMB
       justifyContent: 'center',
     }}>
       {!stopped ? (
-        // Spinning: scrolling colored blocks
         <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
           <style>{`
             @keyframes reelScroll {
@@ -104,7 +87,7 @@ function SpinningReel({ symbol, isSpinning, stopDelay, theme, getSymbolImg, SYMB
           <div style={{
             display: 'flex',
             flexDirection: 'column',
-            animation: `reelScroll ${0.35}s linear infinite`,
+            animation: `reelScroll 0.35s linear infinite`,
             filter: 'blur(2px)',
           }}>
             {[...strip, ...strip].map((sym, i) => (
@@ -118,18 +101,12 @@ function SpinningReel({ symbol, isSpinning, stopDelay, theme, getSymbolImg, SYMB
                 alignItems: 'center',
                 justifyContent: 'center',
               }}>
-                <div style={{
-                  width: 32, height: 32,
-                  borderRadius: '50%',
-                  background: SYMBOL_COLORS[sym],
-                  opacity: 0.7,
-                }} />
+                <div style={{ width: 32, height: 32, borderRadius: '50%', background: SYMBOL_COLORS[sym], opacity: 0.7 }} />
               </div>
             ))}
           </div>
         </div>
       ) : (
-        // Stopped: show actual symbol
         <>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 56 }}>
             {getSymbolImg(symbol, 48)}
@@ -142,7 +119,6 @@ function SpinningReel({ symbol, isSpinning, stopDelay, theme, getSymbolImg, SYMB
     </div>
   );
 }
-
 
 export default function SlotsPage() {
   const { eventId } = useParams();
@@ -159,24 +135,21 @@ export default function SlotsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Slot machine state
   const [reels, setReels] = useState(['pokeball', 'pokeball', 'pokeball']);
   const [spinState, setSpinState] = useState('idle');
   const [lastOutcome, setLastOutcome] = useState(null);
   const [spinError, setSpinError] = useState(null);
   const [isSpinning, setIsSpinning] = useState(false);
-  const [isRevealing, setIsRevealing] = useState(false); // reels stopping, outcome not yet shown
-  const [cooldownLeft, setCooldownLeft] = useState(0); // seconds until next spin allowed
+  const [isRevealing, setIsRevealing] = useState(false);
+  const [cooldownLeft, setCooldownLeft] = useState(0);
   const cooldownRef = React.useRef(null);
 
-  // UI state
   const [activeTab, setActiveTab] = useState('machine');
   const [purchaseLoading, setPurchaseLoading] = useState(null);
   const [purchaseMsg, setPurchaseMsg] = useState(null);
 
   const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
 
-  // ─── Load data ───────────────────────────────────────────────
   const loadAll = useCallback(async () => {
     try {
       const [evRes, cfgRes, playersRes, storeRes, prizesRes, payoutRes] = await Promise.all([
@@ -217,30 +190,15 @@ export default function SlotsPage() {
   useEffect(() => { loadMyPlayer(); }, [loadMyPlayer]);
   useEffect(() => { if (myPlayer) loadRecentSpins(myPlayer.id); }, [myPlayer, loadRecentSpins]);
 
-  // ─── Realtime ─────────────────────────────────────────────────
   useEffect(() => {
     const ch = supabase.channel(`slots-page-${eventId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'slots_players', filter: `event_id=eq.${eventId}` }, () => {
-        loadAll(); loadMyPlayer();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'slots_prize_board', filter: `event_id=eq.${eventId}` }, () => {
-        loadAll();
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'slots_players', filter: `event_id=eq.${eventId}` }, () => { loadAll(); loadMyPlayer(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'slots_prize_board', filter: `event_id=eq.${eventId}` }, () => { loadAll(); })
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, [eventId, loadAll, loadMyPlayer]);
 
-  // ─── Spin ──────────────────────────────────────────────────────
-  const handleSpin = async () => {
-    if (!user || !myPlayer) return;
-    if (myPlayer.slot_tokens < 1) { setSpinError('No tokens remaining.'); return; }
-    if (isSpinning || cooldownLeft > 0) return;
-    setIsSpinning(true);
-    setSpinError(null);
-    setLastOutcome(null);
-    setSpinState('spinning');
-
-    // Start cooldown immediately on spin press
+  const startCooldown = () => {
     setCooldownLeft(SPIN_COOLDOWN_SECS);
     if (cooldownRef.current) clearInterval(cooldownRef.current);
     cooldownRef.current = setInterval(() => {
@@ -249,6 +207,20 @@ export default function SlotsPage() {
         return prev - 1;
       });
     }, 1000);
+  };
+
+  const handleSpin = async () => {
+    if (!user || !myPlayer) return;
+    if (myPlayer.slot_tokens < 1) { setSpinError('No tokens remaining.'); return; }
+    if (isSpinning || cooldownLeft > 0) return;
+
+    setIsSpinning(true);
+    setSpinError(null);
+    setLastOutcome(null);
+    setSpinState('spinning');
+
+    // Start cooldown immediately — visible as ticking number during spin
+    startCooldown();
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -260,23 +232,18 @@ export default function SlotsPage() {
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'Spin failed');
 
-      // Wait 800ms of spinning before starting stagger-stop sequence
-      await new Promise(r => setTimeout(r, 800));
-
-      // Set result reels now — SpinningReel will use them once stopped
+      // Short spin before stagger-stop
+      await new Promise(r => setTimeout(r, 400));
       setReels(result.reels);
 
-      // isSpinning → false triggers stagger: reel 1 stops at 0ms, reel 2 at 500ms, reel 3 at 1000ms
-      // We reveal outcome after the last reel has stopped (1000ms + buffer)
+      // Stagger stop: reel 0 at 0ms, reel 1 at 300ms, reel 2 at 600ms
       setIsRevealing(true);
       setIsSpinning(false);
-      await new Promise(r => setTimeout(r, 1200));
+      await new Promise(r => setTimeout(r, 800));
 
       setIsRevealing(false);
       setLastOutcome(result);
       setSpinState('result_shown');
-
-
 
       await loadMyPlayer();
       if (myPlayer) await loadRecentSpins(myPlayer.id);
@@ -284,13 +251,11 @@ export default function SlotsPage() {
     } catch (e) {
       setSpinError(e.message);
       setSpinState('idle');
-
     } finally {
       setIsSpinning(false);
     }
   };
 
-  // ─── Purchase ─────────────────────────────────────────────────
   const handlePurchase = async (item) => {
     if (!user || !myPlayer) return;
     if ((myPlayer.casino_prize_coins || 0) < item.cost_cpc) return;
@@ -309,15 +274,12 @@ export default function SlotsPage() {
     }
   };
 
-  // ─── Mark paid ────────────────────────────────────────────────
   const handleMarkPaid = async (entry, paid) => {
     if (!canManage) return;
     await setPrizePaid(eventId, entry.id, paid, user.id);
     await loadAll();
   };
 
-  // ─── Symbol rendering ─────────────────────────────────────────
-  // Always use the hardcoded repo images; no custom URL fallback for reels.
   const getSymbolImg = (sym, size = 48) => {
     const src = SYMBOL_IMAGES[sym];
     if (src) return <img src={src} alt={sym} style={{ width: size, height: size, objectFit: 'contain' }} />;
@@ -334,10 +296,17 @@ export default function SlotsPage() {
   const myCpc = myPlayer?.casino_prize_coins ?? 0;
   const isWin = lastOutcome && lastOutcome.payout_cpc > 0;
   const isJackpot = lastOutcome?.payout_cpc >= 34045;
+  const isBusy = isSpinning || isRevealing;
+
+  // Spin button label — always shows countdown so player sees it ticking during animation
+  const spinBtnLabel = isBusy
+    ? `⏳ ${cooldownLeft > 0 ? cooldownLeft + 's' : '…'}`
+    : cooldownLeft > 0
+      ? `⏱ ${cooldownLeft}s`
+      : '🎰 SPIN (1 🎟️)';
 
   return (
     <div style={{ ...styles.page, background: '#0a0a0f' }}>
-      {/* ─── Header ─────────────────────────────────────── */}
       <div style={{ ...styles.header, borderBottomColor: theme }}>
         <div style={styles.headerLeft}>
           {config.banner_image_url
@@ -363,9 +332,7 @@ export default function SlotsPage() {
             <span style={{ fontSize: 12, opacity: 0.5 }}>as {myPlayer.display_name}</span>
           </div>
         )}
-        {user && !myPlayer && (
-          <div style={{ fontSize: 12, opacity: 0.5 }}>Not enrolled in this event</div>
-        )}
+        {user && !myPlayer && <div style={{ fontSize: 12, opacity: 0.5 }}>Not enrolled in this event</div>}
         {!user && (
           <Link to="/admin" style={{ ...styles.btn, background: theme, textDecoration: 'none', fontSize: 13, padding: '6px 14px' }}>
             Log In to Spin
@@ -373,7 +340,6 @@ export default function SlotsPage() {
         )}
       </div>
 
-      {/* ─── Nav tabs ───────────────────────────────────── */}
       <div style={styles.tabBar}>
         {[['machine','🎰 Slots'],['store','🛒 Store'],['board','🏅 Prize Board'],['leaderboard','🏆 Leaderboard'],['paytable','📋 Pay Table']].map(([id,label]) => (
           <button key={id} onClick={() => setActiveTab(id)}
@@ -384,7 +350,6 @@ export default function SlotsPage() {
       </div>
 
       <div style={styles.content}>
-        {/* ═══════════════ SLOT MACHINE ═══════════════════ */}
         {activeTab === 'machine' && (
           <div style={styles.machineWrap}>
             <div style={{ ...styles.cabinet, borderColor: theme, boxShadow: `0 0 40px ${theme}33, inset 0 0 60px rgba(0,0,0,0.5)` }}>
@@ -394,18 +359,15 @@ export default function SlotsPage() {
                 </span>
               </div>
 
-              {/* Reels — stagger-stop left to right for casino feel */}
               <div style={styles.reelWindow}>
                 {reels.map((sym, i) => (
                   <SpinningReel
                     key={i}
                     symbol={sym}
                     isSpinning={isSpinning}
-                    stopDelay={i * 500}
+                    stopDelay={i * 300}
                     theme={theme}
                     getSymbolImg={getSymbolImg}
-                    SYMBOL_COLORS={SYMBOL_COLORS}
-                    ALL_SYMBOLS={ALL_SYMBOLS}
                   />
                 ))}
               </div>
@@ -413,8 +375,8 @@ export default function SlotsPage() {
               <div style={{ ...styles.payline, borderColor: `${theme}88` }} />
 
               <div style={styles.resultBanner}>
-                {(isSpinning || isRevealing) && <div style={{ color: '#888', fontSize: 14, letterSpacing: 2 }}>SPINNING…</div>}
-                {!isSpinning && !isRevealing && lastOutcome && (
+                {isBusy && <div style={{ color: '#888', fontSize: 14, letterSpacing: 2 }}>SPINNING…</div>}
+                {!isBusy && lastOutcome && (
                   <div style={{
                     color: isJackpot ? '#FFD700' : isWin ? '#4CAF50' : '#888',
                     fontSize: isJackpot ? 22 : 16,
@@ -424,7 +386,7 @@ export default function SlotsPage() {
                     {isJackpot ? '🏆 JACKPOT! 🏆' : isWin ? `+${lastOutcome.payout_cpc} CPC` : 'No Win'}
                   </div>
                 )}
-                {!isSpinning && !isRevealing && !lastOutcome && !spinError && (
+                {!isBusy && !lastOutcome && !spinError && (
                   <div style={{ color: '#555', fontSize: 12 }}>Press SPIN to play</div>
                 )}
                 {spinError && <div style={{ color: '#f44', fontSize: 13 }}>{spinError}</div>}
@@ -433,21 +395,20 @@ export default function SlotsPage() {
               <div style={{ textAlign: 'center', paddingBottom: 20 }}>
                 <button
                   onClick={handleSpin}
-                  disabled={!user || !myPlayer || isSpinning || isRevealing || myTokens < 1 || cooldownLeft > 0}
+                  disabled={!user || !myPlayer || isBusy || myTokens < 1 || cooldownLeft > 0}
                   title={!user ? 'Log in to spin' : !myPlayer ? 'Not enrolled' : myTokens < 1 ? 'No tokens' : 'Spin!'}
                   style={{
                     ...styles.spinBtn,
-                    background: isSpinning ? '#333' : theme,
-                    boxShadow: isSpinning ? 'none' : `0 0 20px ${theme}88`,
-                    cursor: (!user || !myPlayer || myTokens < 1 || isSpinning || isRevealing || cooldownLeft > 0) ? 'not-allowed' : 'pointer',
-                    opacity: (!user || !myPlayer || myTokens < 1 || cooldownLeft > 0) && !isSpinning && !isRevealing ? 0.5 : 1,
+                    background: isBusy ? '#333' : cooldownLeft > 0 ? '#444' : theme,
+                    boxShadow: (isBusy || cooldownLeft > 0) ? 'none' : `0 0 20px ${theme}88`,
+                    cursor: (!user || !myPlayer || myTokens < 1 || isBusy || cooldownLeft > 0) ? 'not-allowed' : 'pointer',
+                    opacity: (!user || !myPlayer || myTokens < 1) ? 0.5 : 1,
                   }}>
-                  {isSpinning || isRevealing ? '⏳ SPINNING' : cooldownLeft > 0 ? `⏱ ${cooldownLeft}s` : '🎰 SPIN (1 🎟️)'}
+                  {spinBtnLabel}
                 </button>
               </div>
             </div>
 
-            {/* Recent spins */}
             {user && myPlayer && recentSpins.length > 0 && (
               <div style={styles.recentWrap}>
                 <div style={{ ...styles.sectionTitle, color: theme }}>My Recent Spins</div>
@@ -473,14 +434,11 @@ export default function SlotsPage() {
           </div>
         )}
 
-        {/* ═══════════════ PRIZE STORE ════════════════════ */}
         {activeTab === 'store' && (
           <div style={styles.panelWrap}>
             <div style={styles.panelHeader}>
               <span style={{ ...styles.sectionTitle, color: theme }}>🛒 Prize Store</span>
-              {user && myPlayer && (
-                <span style={{ fontSize: 13, color: '#d4af37' }}>Balance: {myCpc.toLocaleString()} 🪙 CPC</span>
-              )}
+              {user && myPlayer && <span style={{ fontSize: 13, color: '#d4af37' }}>Balance: {myCpc.toLocaleString()} 🪙 CPC</span>}
             </div>
             {purchaseMsg && (
               <div style={{ ...styles.flashMsg, background: purchaseMsg.startsWith('Error') ? '#f443361a' : '#4caf501a', borderColor: purchaseMsg.startsWith('Error') ? '#f44' : '#4caf50' }}>
@@ -498,26 +456,14 @@ export default function SlotsPage() {
                     <div style={styles.storeCardBody}>
                       <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{item.label}</div>
                       {item.description && <div style={{ fontSize: 12, opacity: 0.6, marginBottom: 8 }}>{item.description}</div>}
-                      {item.pays_out_slot_tokens && (
-                        <div style={{ fontSize: 12, color: '#90CAF9', marginBottom: 6 }}>+{item.pays_out_slot_tokens} 🎟️ tokens</div>
-                      )}
+                      {item.pays_out_slot_tokens && <div style={{ fontSize: 12, color: '#90CAF9', marginBottom: 6 }}>+{item.pays_out_slot_tokens} 🎟️ tokens</div>}
                       {item.quantity_remaining !== null && (
-                        <div style={{ fontSize: 11, opacity: 0.5, marginBottom: 6 }}>
-                          {soldOut ? 'Sold out' : `${item.quantity_remaining} remaining`}
-                        </div>
+                        <div style={{ fontSize: 11, opacity: 0.5, marginBottom: 6 }}>{soldOut ? 'Sold out' : `${item.quantity_remaining} remaining`}</div>
                       )}
-                      <div style={{ ...styles.storePrice, color: '#d4af37' }}>
-                        🪙 {item.cost_cpc.toLocaleString()} CPC
-                      </div>
-                      <button
-                        onClick={() => handlePurchase(item)}
+                      <div style={{ ...styles.storePrice, color: '#d4af37' }}>🪙 {item.cost_cpc.toLocaleString()} CPC</div>
+                      <button onClick={() => handlePurchase(item)}
                         disabled={!user || !myPlayer || !canAfford || soldOut || purchaseLoading === item.id}
-                        style={{
-                          ...styles.purchaseBtn,
-                          background: (soldOut || !canAfford) ? '#333' : theme,
-                          cursor: (!user || !myPlayer || !canAfford || soldOut) ? 'not-allowed' : 'pointer',
-                          opacity: (!user || !myPlayer || !canAfford || soldOut) ? 0.5 : 1,
-                        }}>
+                        style={{ ...styles.purchaseBtn, background: (soldOut || !canAfford) ? '#333' : theme, cursor: (!user || !myPlayer || !canAfford || soldOut) ? 'not-allowed' : 'pointer', opacity: (!user || !myPlayer || !canAfford || soldOut) ? 0.5 : 1 }}>
                         {purchaseLoading === item.id ? '…' : soldOut ? 'Sold Out' : !user ? 'Log In' : !myPlayer ? 'Not Enrolled' : !canAfford ? 'Insufficient CPC' : 'Purchase'}
                       </button>
                     </div>
@@ -528,21 +474,12 @@ export default function SlotsPage() {
           </div>
         )}
 
-        {/* ═══════════════ PRIZE BOARD ════════════════════ */}
         {activeTab === 'board' && (
           <div style={styles.panelWrap}>
-            <div style={styles.panelHeader}>
-              <span style={{ ...styles.sectionTitle, color: theme }}>🏅 Prize Board</span>
-            </div>
+            <div style={styles.panelHeader}><span style={{ ...styles.sectionTitle, color: theme }}>🏅 Prize Board</span></div>
             {prizeBoard.length === 0 && <div style={styles.empty}>No prizes claimed yet.</div>}
             <table style={styles.table}>
-              <thead>
-                <tr>
-                  {['Player','Prize','Cost','Date','Status', canManage && 'Mark'].filter(Boolean).map(h => (
-                    <th key={h} style={styles.th}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
+              <thead><tr>{['Player','Prize','Cost','Date','Status', canManage && 'Mark'].filter(Boolean).map(h => <th key={h} style={styles.th}>{h}</th>)}</tr></thead>
               <tbody>
                 {prizeBoard.map(entry => (
                   <tr key={entry.id} style={{ opacity: entry.paid ? 0.5 : 1 }}>
@@ -550,19 +487,8 @@ export default function SlotsPage() {
                     <td style={styles.td}>{entry.slots_store_items?.label || '—'}</td>
                     <td style={styles.td}>🪙 {entry.cost_cpc_at_purchase}</td>
                     <td style={styles.td}>{new Date(entry.purchased_at).toLocaleDateString()}</td>
-                    <td style={styles.td}>
-                      <span style={{ color: entry.paid ? '#4CAF50' : '#888', fontSize: 12 }}>
-                        {entry.paid ? '✅ Fulfilled' : '⏳ Pending'}
-                      </span>
-                    </td>
-                    {canManage && (
-                      <td style={styles.td}>
-                        <button onClick={() => handleMarkPaid(entry, !entry.paid)}
-                          style={{ ...styles.smallBtn, background: entry.paid ? '#555' : '#4CAF50' }}>
-                          {entry.paid ? 'Unmark' : 'Fulfill'}
-                        </button>
-                      </td>
-                    )}
+                    <td style={styles.td}><span style={{ color: entry.paid ? '#4CAF50' : '#888', fontSize: 12 }}>{entry.paid ? '✅ Fulfilled' : '⏳ Pending'}</span></td>
+                    {canManage && <td style={styles.td}><button onClick={() => handleMarkPaid(entry, !entry.paid)} style={{ ...styles.smallBtn, background: entry.paid ? '#555' : '#4CAF50' }}>{entry.paid ? 'Unmark' : 'Fulfill'}</button></td>}
                   </tr>
                 ))}
               </tbody>
@@ -570,21 +496,12 @@ export default function SlotsPage() {
           </div>
         )}
 
-        {/* ═══════════════ LEADERBOARD ════════════════════ */}
         {activeTab === 'leaderboard' && (
           <div style={styles.panelWrap}>
-            <div style={styles.panelHeader}>
-              <span style={{ ...styles.sectionTitle, color: theme }}>🏆 Leaderboard</span>
-            </div>
+            <div style={styles.panelHeader}><span style={{ ...styles.sectionTitle, color: theme }}>🏆 Leaderboard</span></div>
             {players.length === 0 && <div style={styles.empty}>No players yet.</div>}
             <table style={styles.table}>
-              <thead>
-                <tr>
-                  {['#','Player','Spins','Total CPC Won','Jackpots','Tokens','CPC Balance'].map(h => (
-                    <th key={h} style={styles.th}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
+              <thead><tr>{['#','Player','Spins','Total CPC Won','Jackpots','Tokens','CPC Balance'].map(h => <th key={h} style={styles.th}>{h}</th>)}</tr></thead>
               <tbody>
                 {players.map((p, i) => (
                   <tr key={p.id} style={{ background: myPlayer?.id === p.id ? `${theme}15` : 'transparent' }}>
@@ -593,9 +510,7 @@ export default function SlotsPage() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         {p.avatar_url
                           ? <img src={p.avatar_url} style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }} />
-                          : <div style={{ width: 28, height: 28, borderRadius: '50%', background: p.color || theme, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>
-                              {p.display_name?.[0]?.toUpperCase()}
-                            </div>
+                          : <div style={{ width: 28, height: 28, borderRadius: '50%', background: p.color || theme, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>{p.display_name?.[0]?.toUpperCase()}</div>
                         }
                         {p.display_name}
                         {myPlayer?.id === p.id && <span style={{ fontSize: 10, color: theme }}>YOU</span>}
@@ -603,9 +518,7 @@ export default function SlotsPage() {
                     </td>
                     <td style={styles.tdNum}>{p.total_spins?.toLocaleString()}</td>
                     <td style={{ ...styles.tdNum, color: '#d4af37' }}>🪙 {p.total_cpc_won?.toLocaleString()}</td>
-                    <td style={{ ...styles.tdNum, color: p.jackpots_hit > 0 ? '#FFD700' : '#555' }}>
-                      {p.jackpots_hit > 0 ? `🏆 ${p.jackpots_hit}` : '—'}
-                    </td>
+                    <td style={{ ...styles.tdNum, color: p.jackpots_hit > 0 ? '#FFD700' : '#555' }}>{p.jackpots_hit > 0 ? `🏆 ${p.jackpots_hit}` : '—'}</td>
                     <td style={styles.tdNum}>🎟️ {p.slot_tokens?.toLocaleString()}</td>
                     <td style={{ ...styles.tdNum, color: '#d4af37' }}>🪙 {p.casino_prize_coins?.toLocaleString()}</td>
                   </tr>
@@ -615,49 +528,27 @@ export default function SlotsPage() {
           </div>
         )}
 
-        {/* ═══════════════ PAY TABLE ══════════════════════ */}
         {activeTab === 'paytable' && (
           <div style={styles.panelWrap}>
             <div style={styles.panelHeader}>
               <span style={{ ...styles.sectionTitle, color: theme }}>📋 Pay Table</span>
-              <span style={{ fontSize: 12, color: '#888' }}>~87% RTP · Reel-driven · Near-miss reel 3</span>
+              <span style={{ fontSize: 12, color: '#888' }}>~87% RTP · ~23% win rate · Near-miss reel 3</span>
             </div>
-
             <div style={styles.rulesBox}>
-              <div style={styles.ruleRow}>
-                <span style={styles.ruleIcon}>3️⃣</span>
-                <span><strong>Three of a Kind</strong> — all 3 reels show the same symbol</span>
-              </div>
-              <div style={styles.ruleRow}>
-                <span style={styles.ruleIcon}>2️⃣</span>
-                <span><strong>Left Pair (1+2)</strong> — reels 1 and 2 match, reel 3 differs — higher payout</span>
-              </div>
-              <div style={styles.ruleRow}>
-                <span style={styles.ruleIcon}>2️⃣</span>
-                <span><strong>Right Pair (2+3)</strong> — reels 2 and 3 match, reel 1 differs — lower payout</span>
-              </div>
+              <div style={styles.ruleRow}><span style={styles.ruleIcon}>3️⃣</span><span><strong>Three of a Kind</strong> — all 3 reels show the same symbol</span></div>
+              <div style={styles.ruleRow}><span style={styles.ruleIcon}>2️⃣</span><span><strong>Left Pair (1+2)</strong> — reels 1 and 2 match, reel 3 differs — higher payout</span></div>
+              <div style={styles.ruleRow}><span style={styles.ruleIcon}>2️⃣</span><span><strong>Right Pair (2+3)</strong> — reels 2 and 3 match, reel 1 differs — lower payout</span></div>
               <div style={{ fontSize: 11, opacity: 0.4, paddingLeft: 26 }}>Any consecutive pair pays. Three of a kind always takes priority.</div>
             </div>
-
             <table style={styles.table}>
-              <thead>
-                <tr>
-                  {['Outcome','Symbols','Type','Payout (CPC)'].map(h => (
-                    <th key={h} style={styles.th}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
+              <thead><tr>{['Outcome','Symbols','Type','Payout (CPC)'].map(h => <th key={h} style={styles.th}>{h}</th>)}</tr></thead>
               <tbody>
                 {payoutTable.map(row => (
                   <tr key={row.id} style={{ background: row.is_jackpot ? '#FFD70010' : 'transparent' }}>
-                    <td style={{ ...styles.td, color: row.is_jackpot ? '#FFD700' : '#ccc', fontWeight: row.is_jackpot ? 700 : 400 }}>
-                      {row.is_jackpot && '🏆 '}{row.label}
-                    </td>
+                    <td style={{ ...styles.td, color: row.is_jackpot ? '#FFD700' : '#ccc', fontWeight: row.is_jackpot ? 700 : 400 }}>{row.is_jackpot && '🏆 '}{row.label}</td>
                     <td style={styles.td}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        {(row.symbols || []).map((s, i) => (
-                          <span key={i}>{getSymbolImg(s, 24)}</span>
-                        ))}
+                        {(row.symbols || []).map((s, i) => <span key={i}>{getSymbolImg(s, 24)}</span>)}
                       </div>
                     </td>
                     <td style={{ ...styles.td, fontSize: 12 }}>
@@ -679,8 +570,6 @@ export default function SlotsPage() {
           </div>
         )}
       </div>
-
-
     </div>
   );
 }
@@ -708,9 +597,6 @@ const styles = {
   cabinet: { width: '100%', maxWidth: 520, borderRadius: 16, border: '2px solid', background: '#111', overflow: 'hidden' },
   cabinetTop: { padding: '10px 20px', textAlign: 'center', color: '#fff', fontWeight: 700 },
   reelWindow: { display: 'flex', justifyContent: 'center', gap: 12, padding: '24px 20px 12px' },
-  reel: { width: 120, height: 100, border: '2px solid', borderRadius: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', transition: 'background 0.3s' },
-  reelInner: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: 56 },
-  reelLabel: { fontSize: 11, marginTop: 4 },
   payline: { height: 2, borderTop: '1px dashed', margin: '0 20px', opacity: 0.4 },
   resultBanner: { height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' },
   spinBtn: { padding: '14px 48px', fontSize: 16, fontWeight: 800, color: '#fff', border: 'none', borderRadius: 30, letterSpacing: 1, transition: 'all 0.2s' },
