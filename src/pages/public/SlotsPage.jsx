@@ -132,6 +132,7 @@ export default function SlotsPage() {
   const [prizeBoard, setPrizeBoard] = useState([]);
   const [payoutTable, setPayoutTable] = useState([]);
   const [recentSpins, setRecentSpins] = useState([]);
+  const [bestSpins, setBestSpins] = useState({});  // player_id -> { payout_cpc, reels }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -163,10 +164,30 @@ export default function SlotsPage() {
       if (evRes.error) throw evRes.error;
       setEvent(evRes.data);
       setConfig(cfgRes.data);
-      setPlayers(playersRes.data || []);
+      const playerList = playersRes.data || [];
+      setPlayers(playerList);
       setStoreItems(storeRes.data || []);
       setPrizeBoard(prizesRes.data || []);
       setPayoutTable(payoutRes.data || []);
+
+      // Fetch best spin per player — one query, max payout per player_id
+      if (playerList.length > 0) {
+        const playerIds = playerList.map(p => p.id);
+        const { data: bestSpinData } = await supabase
+          .from('slots_spins')
+          .select('player_id, payout_cpc, reels')
+          .in('player_id', playerIds)
+          .eq('event_id', eventId)
+          .gt('payout_cpc', 0)
+          .order('payout_cpc', { ascending: false });
+
+        // Keep only the top spin per player
+        const bestMap = {};
+        for (const spin of bestSpinData || []) {
+          if (!bestMap[spin.player_id]) bestMap[spin.player_id] = spin;
+        }
+        setBestSpins(bestMap);
+      }
     } catch (e) {
       setError(e.message);
     } finally {
@@ -219,7 +240,6 @@ export default function SlotsPage() {
     setLastOutcome(null);
     setSpinState('spinning');
 
-    // Start cooldown immediately — visible as ticking number during spin
     startCooldown();
 
     try {
@@ -232,11 +252,9 @@ export default function SlotsPage() {
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'Spin failed');
 
-      // Short spin before stagger-stop
       await new Promise(r => setTimeout(r, 400));
       setReels(result.reels);
 
-      // Stagger stop: reel 0 at 0ms, reel 1 at 300ms, reel 2 at 600ms
       setIsRevealing(true);
       setIsSpinning(false);
       await new Promise(r => setTimeout(r, 800));
@@ -283,12 +301,12 @@ export default function SlotsPage() {
   const getSymbolImg = (sym, size = 48) => {
     const src = SYMBOL_IMAGES[sym];
     if (src) return <img src={src} alt={sym} style={{ width: size, height: size, objectFit: 'contain' }} />;
-    return <span style={{ fontSize: size * 0.8, lineHeight: 1 }}>❓</span>;
+    return <span style={{ fontSize: size * 0.8, lineHeight: 1 }}>?</span>;
   };
 
   const theme = config?.theme_color || '#c62828';
 
-  if (loading) return <div style={styles.center}>Loading…</div>;
+  if (loading) return <div style={styles.center}>Loading...</div>;
   if (error) return <div style={styles.center}>Error: {error}</div>;
   if (!config) return <div style={styles.center}>Event not found.</div>;
 
@@ -298,12 +316,11 @@ export default function SlotsPage() {
   const isJackpot = lastOutcome?.payout_cpc >= 34045;
   const isBusy = isSpinning || isRevealing;
 
-  // Spin button label — always shows countdown so player sees it ticking during animation
   const spinBtnLabel = isBusy
-    ? `⏳ ${cooldownLeft > 0 ? cooldownLeft + 's' : '…'}`
+    ? `${cooldownLeft > 0 ? cooldownLeft + 's' : '...'}`
     : cooldownLeft > 0
-      ? `⏱ ${cooldownLeft}s`
-      : '🎰 SPIN (1 🎟️)';
+      ? `${cooldownLeft}s`
+      : 'SPIN (1 token)';
 
   return (
     <div style={{ ...styles.page, background: '#0a0a0f' }}>
@@ -320,12 +337,12 @@ export default function SlotsPage() {
         {user && myPlayer && (
           <div style={styles.balanceBar}>
             <div style={styles.balanceChip}>
-              <span style={{ fontSize: 18 }}>🎟️</span>
+              <span style={{ fontSize: 18 }}>T</span>
               <span style={{ fontWeight: 700, fontSize: 18 }}>{myTokens.toLocaleString()}</span>
               <span style={{ fontSize: 11, opacity: 0.6 }}>tokens</span>
             </div>
             <div style={{ ...styles.balanceChip, background: 'rgba(212,175,55,0.15)', borderColor: '#d4af37' }}>
-              <span style={{ fontSize: 18 }}>🪙</span>
+              <span style={{ fontSize: 18 }}>C</span>
               <span style={{ fontWeight: 700, fontSize: 18, color: '#d4af37' }}>{myCpc.toLocaleString()}</span>
               <span style={{ fontSize: 11, opacity: 0.6 }}>CPC</span>
             </div>
@@ -341,7 +358,7 @@ export default function SlotsPage() {
       </div>
 
       <div style={styles.tabBar}>
-        {[['machine','🎰 Slots'],['store','🛒 Store'],['board','🏅 Prize Board'],['leaderboard','🏆 Leaderboard'],['paytable','📋 Pay Table']].map(([id,label]) => (
+        {[['machine','Slots'],['store','Store'],['board','Prize Board'],['leaderboard','Leaderboard'],['paytable','Pay Table']].map(([id,label]) => (
           <button key={id} onClick={() => setActiveTab(id)}
             style={{ ...styles.tab, ...(activeTab===id ? { borderBottomColor: theme, color: '#fff' } : {}) }}>
             {label}
@@ -375,7 +392,7 @@ export default function SlotsPage() {
               <div style={{ ...styles.payline, borderColor: `${theme}88` }} />
 
               <div style={styles.resultBanner}>
-                {isBusy && <div style={{ color: '#888', fontSize: 14, letterSpacing: 2 }}>SPINNING…</div>}
+                {isBusy && <div style={{ color: '#888', fontSize: 14, letterSpacing: 2 }}>SPINNING...</div>}
                 {!isBusy && lastOutcome && (
                   <div style={{
                     color: isJackpot ? '#FFD700' : isWin ? '#4CAF50' : '#888',
@@ -383,7 +400,7 @@ export default function SlotsPage() {
                     fontWeight: 700,
                     textShadow: isJackpot ? '0 0 20px #FFD700' : 'none',
                   }}>
-                    {isJackpot ? '🏆 JACKPOT! 🏆' : isWin ? `+${lastOutcome.payout_cpc} CPC` : 'No Win'}
+                    {isJackpot ? 'JACKPOT!' : isWin ? `+${lastOutcome.payout_cpc} CPC` : 'No Win'}
                   </div>
                 )}
                 {!isBusy && !lastOutcome && !spinError && (
@@ -422,7 +439,7 @@ export default function SlotsPage() {
                       ))}
                     </div>
                     <div style={{ color: spin.payout_cpc > 0 ? '#4CAF50' : '#555', fontWeight: 600, minWidth: 60, textAlign: 'right' }}>
-                      {spin.payout_cpc > 0 ? `+${spin.payout_cpc}` : '—'}
+                      {spin.payout_cpc > 0 ? `+${spin.payout_cpc}` : '--'}
                     </div>
                     <div style={{ fontSize: 11, opacity: 0.4, minWidth: 80, textAlign: 'right' }}>
                       {new Date(spin.spun_at).toLocaleTimeString()}
@@ -437,8 +454,8 @@ export default function SlotsPage() {
         {activeTab === 'store' && (
           <div style={styles.panelWrap}>
             <div style={styles.panelHeader}>
-              <span style={{ ...styles.sectionTitle, color: theme }}>🛒 Prize Store</span>
-              {user && myPlayer && <span style={{ fontSize: 13, color: '#d4af37' }}>Balance: {myCpc.toLocaleString()} 🪙 CPC</span>}
+              <span style={{ ...styles.sectionTitle, color: theme }}>Prize Store</span>
+              {user && myPlayer && <span style={{ fontSize: 13, color: '#d4af37' }}>Balance: {myCpc.toLocaleString()} CPC</span>}
             </div>
             {purchaseMsg && (
               <div style={{ ...styles.flashMsg, background: purchaseMsg.startsWith('Error') ? '#f443361a' : '#4caf501a', borderColor: purchaseMsg.startsWith('Error') ? '#f44' : '#4caf50' }}>
@@ -456,15 +473,15 @@ export default function SlotsPage() {
                     <div style={styles.storeCardBody}>
                       <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{item.label}</div>
                       {item.description && <div style={{ fontSize: 12, opacity: 0.6, marginBottom: 8 }}>{item.description}</div>}
-                      {item.pays_out_slot_tokens && <div style={{ fontSize: 12, color: '#90CAF9', marginBottom: 6 }}>+{item.pays_out_slot_tokens} 🎟️ tokens</div>}
+                      {item.pays_out_slot_tokens && <div style={{ fontSize: 12, color: '#90CAF9', marginBottom: 6 }}>+{item.pays_out_slot_tokens} tokens</div>}
                       {item.quantity_remaining !== null && (
                         <div style={{ fontSize: 11, opacity: 0.5, marginBottom: 6 }}>{soldOut ? 'Sold out' : `${item.quantity_remaining} remaining`}</div>
                       )}
-                      <div style={{ ...styles.storePrice, color: '#d4af37' }}>🪙 {item.cost_cpc.toLocaleString()} CPC</div>
+                      <div style={{ ...styles.storePrice, color: '#d4af37' }}>{item.cost_cpc.toLocaleString()} CPC</div>
                       <button onClick={() => handlePurchase(item)}
                         disabled={!user || !myPlayer || !canAfford || soldOut || purchaseLoading === item.id}
                         style={{ ...styles.purchaseBtn, background: (soldOut || !canAfford) ? '#333' : theme, cursor: (!user || !myPlayer || !canAfford || soldOut) ? 'not-allowed' : 'pointer', opacity: (!user || !myPlayer || !canAfford || soldOut) ? 0.5 : 1 }}>
-                        {purchaseLoading === item.id ? '…' : soldOut ? 'Sold Out' : !user ? 'Log In' : !myPlayer ? 'Not Enrolled' : !canAfford ? 'Insufficient CPC' : 'Purchase'}
+                        {purchaseLoading === item.id ? '...' : soldOut ? 'Sold Out' : !user ? 'Log In' : !myPlayer ? 'Not Enrolled' : !canAfford ? 'Insufficient CPC' : 'Purchase'}
                       </button>
                     </div>
                   </div>
@@ -476,18 +493,18 @@ export default function SlotsPage() {
 
         {activeTab === 'board' && (
           <div style={styles.panelWrap}>
-            <div style={styles.panelHeader}><span style={{ ...styles.sectionTitle, color: theme }}>🏅 Prize Board</span></div>
+            <div style={styles.panelHeader}><span style={{ ...styles.sectionTitle, color: theme }}>Prize Board</span></div>
             {prizeBoard.length === 0 && <div style={styles.empty}>No prizes claimed yet.</div>}
             <table style={styles.table}>
               <thead><tr>{['Player','Prize','Cost','Date','Status', canManage && 'Mark'].filter(Boolean).map(h => <th key={h} style={styles.th}>{h}</th>)}</tr></thead>
               <tbody>
                 {prizeBoard.map(entry => (
                   <tr key={entry.id} style={{ opacity: entry.paid ? 0.5 : 1 }}>
-                    <td style={styles.td}>{entry.slots_players?.display_name || '—'}</td>
-                    <td style={styles.td}>{entry.slots_store_items?.label || '—'}</td>
-                    <td style={styles.td}>🪙 {entry.cost_cpc_at_purchase}</td>
+                    <td style={styles.td}>{entry.slots_players?.display_name || '--'}</td>
+                    <td style={styles.td}>{entry.slots_store_items?.label || '--'}</td>
+                    <td style={styles.td}>{entry.cost_cpc_at_purchase} CPC</td>
                     <td style={styles.td}>{new Date(entry.purchased_at).toLocaleDateString()}</td>
-                    <td style={styles.td}><span style={{ color: entry.paid ? '#4CAF50' : '#888', fontSize: 12 }}>{entry.paid ? '✅ Fulfilled' : '⏳ Pending'}</span></td>
+                    <td style={styles.td}><span style={{ color: entry.paid ? '#4CAF50' : '#888', fontSize: 12 }}>{entry.paid ? 'Fulfilled' : 'Pending'}</span></td>
                     {canManage && <td style={styles.td}><button onClick={() => handleMarkPaid(entry, !entry.paid)} style={{ ...styles.smallBtn, background: entry.paid ? '#555' : '#4CAF50' }}>{entry.paid ? 'Unmark' : 'Fulfill'}</button></td>}
                   </tr>
                 ))}
@@ -498,31 +515,58 @@ export default function SlotsPage() {
 
         {activeTab === 'leaderboard' && (
           <div style={styles.panelWrap}>
-            <div style={styles.panelHeader}><span style={{ ...styles.sectionTitle, color: theme }}>🏆 Leaderboard</span></div>
+            <div style={styles.panelHeader}><span style={{ ...styles.sectionTitle, color: theme }}>Leaderboard</span></div>
             {players.length === 0 && <div style={styles.empty}>No players yet.</div>}
             <table style={styles.table}>
-              <thead><tr>{['#','Player','Spins','Total CPC Won','Jackpots','Tokens','CPC Balance'].map(h => <th key={h} style={styles.th}>{h}</th>)}</tr></thead>
+              <thead>
+                <tr>
+                  {['#','Player','Spins','Total CPC Won','Best Spin','Jackpots','Tokens','CPC Balance'].map(h => (
+                    <th key={h} style={styles.th}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
               <tbody>
-                {players.map((p, i) => (
-                  <tr key={p.id} style={{ background: myPlayer?.id === p.id ? `${theme}15` : 'transparent' }}>
-                    <td style={{ ...styles.td, color: '#888', width: 30 }}>{i + 1}</td>
-                    <td style={styles.td}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {p.avatar_url
-                          ? <img src={p.avatar_url} style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }} />
-                          : <div style={{ width: 28, height: 28, borderRadius: '50%', background: p.color || theme, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>{p.display_name?.[0]?.toUpperCase()}</div>
-                        }
-                        {p.display_name}
-                        {myPlayer?.id === p.id && <span style={{ fontSize: 10, color: theme }}>YOU</span>}
-                      </div>
-                    </td>
-                    <td style={styles.tdNum}>{p.total_spins?.toLocaleString()}</td>
-                    <td style={{ ...styles.tdNum, color: '#d4af37' }}>🪙 {p.total_cpc_won?.toLocaleString()}</td>
-                    <td style={{ ...styles.tdNum, color: p.jackpots_hit > 0 ? '#FFD700' : '#555' }}>{p.jackpots_hit > 0 ? `🏆 ${p.jackpots_hit}` : '—'}</td>
-                    <td style={styles.tdNum}>🎟️ {p.slot_tokens?.toLocaleString()}</td>
-                    <td style={{ ...styles.tdNum, color: '#d4af37' }}>🪙 {p.casino_prize_coins?.toLocaleString()}</td>
-                  </tr>
-                ))}
+                {players.map((p, i) => {
+                  const best = bestSpins[p.id];
+                  return (
+                    <tr key={p.id} style={{ background: myPlayer?.id === p.id ? `${theme}15` : 'transparent' }}>
+                      <td style={{ ...styles.td, color: '#888', width: 30 }}>{i + 1}</td>
+                      <td style={styles.td}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          {p.avatar_url
+                            ? <img src={p.avatar_url} style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }} alt="" />
+                            : <div style={{ width: 28, height: 28, borderRadius: '50%', background: p.color || theme, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700 }}>{p.display_name?.[0]?.toUpperCase()}</div>
+                          }
+                          {p.display_name}
+                          {myPlayer?.id === p.id && <span style={{ fontSize: 10, color: theme }}>YOU</span>}
+                        </div>
+                      </td>
+                      <td style={styles.tdNum}>{p.total_spins?.toLocaleString()}</td>
+                      <td style={{ ...styles.tdNum, color: '#d4af37' }}>{p.total_cpc_won?.toLocaleString()} CPC</td>
+                      <td style={styles.tdNum}>
+                        {best ? (
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                            <div style={{ display: 'flex', gap: 2 }}>
+                              {(best.reels || []).map((s, j) => (
+                                <span key={j}>{getSymbolImg(s, 18)}</span>
+                              ))}
+                            </div>
+                            <span style={{ color: best.payout_cpc >= 34045 ? '#FFD700' : '#4CAF50', fontWeight: 700 }}>
+                              {best.payout_cpc >= 34045 ? 'JACKPOT' : `${best.payout_cpc.toLocaleString()} CPC`}
+                            </span>
+                          </div>
+                        ) : (
+                          <span style={{ color: '#555' }}>--</span>
+                        )}
+                      </td>
+                      <td style={{ ...styles.tdNum, color: p.jackpots_hit > 0 ? '#FFD700' : '#555' }}>
+                        {p.jackpots_hit > 0 ? p.jackpots_hit : '--'}
+                      </td>
+                      <td style={styles.tdNum}>{p.slot_tokens?.toLocaleString()} T</td>
+                      <td style={{ ...styles.tdNum, color: '#d4af37' }}>{p.casino_prize_coins?.toLocaleString()} CPC</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -531,13 +575,13 @@ export default function SlotsPage() {
         {activeTab === 'paytable' && (
           <div style={styles.panelWrap}>
             <div style={styles.panelHeader}>
-              <span style={{ ...styles.sectionTitle, color: theme }}>📋 Pay Table</span>
+              <span style={{ ...styles.sectionTitle, color: theme }}>Pay Table</span>
               <span style={{ fontSize: 12, color: '#888' }}>~87% RTP · ~23% win rate · Near-miss reel 3</span>
             </div>
             <div style={styles.rulesBox}>
-              <div style={styles.ruleRow}><span style={styles.ruleIcon}>3️⃣</span><span><strong>Three of a Kind</strong> — all 3 reels show the same symbol</span></div>
-              <div style={styles.ruleRow}><span style={styles.ruleIcon}>2️⃣</span><span><strong>Left Pair (1+2)</strong> — reels 1 and 2 match, reel 3 differs — higher payout</span></div>
-              <div style={styles.ruleRow}><span style={styles.ruleIcon}>2️⃣</span><span><strong>Right Pair (2+3)</strong> — reels 2 and 3 match, reel 1 differs — lower payout</span></div>
+              <div style={styles.ruleRow}><span style={styles.ruleIcon}>3</span><span><strong>Three of a Kind</strong> — all 3 reels show the same symbol</span></div>
+              <div style={styles.ruleRow}><span style={styles.ruleIcon}>2</span><span><strong>Left Pair (1+2)</strong> — reels 1 and 2 match, reel 3 differs — higher payout</span></div>
+              <div style={styles.ruleRow}><span style={styles.ruleIcon}>2</span><span><strong>Right Pair (2+3)</strong> — reels 2 and 3 match, reel 1 differs — lower payout</span></div>
               <div style={{ fontSize: 11, opacity: 0.4, paddingLeft: 26 }}>Any consecutive pair pays. Three of a kind always takes priority.</div>
             </div>
             <table style={styles.table}>
@@ -545,7 +589,7 @@ export default function SlotsPage() {
               <tbody>
                 {payoutTable.map(row => (
                   <tr key={row.id} style={{ background: row.is_jackpot ? '#FFD70010' : 'transparent' }}>
-                    <td style={{ ...styles.td, color: row.is_jackpot ? '#FFD700' : '#ccc', fontWeight: row.is_jackpot ? 700 : 400 }}>{row.is_jackpot && '🏆 '}{row.label}</td>
+                    <td style={{ ...styles.td, color: row.is_jackpot ? '#FFD700' : '#ccc', fontWeight: row.is_jackpot ? 700 : 400 }}>{row.is_jackpot && 'JACKPOT '}{row.label}</td>
                     <td style={styles.td}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                         {(row.symbols || []).map((s, i) => <span key={i}>{getSymbolImg(s, 24)}</span>)}
@@ -565,20 +609,13 @@ export default function SlotsPage() {
               </tbody>
             </table>
             <div style={{ padding: '12px 0', fontSize: 12, opacity: 0.4, textAlign: 'center' }}>
-              ~87% RTP — per spin wager is 5 CPC (1 token). For every 100 CPC wagered (~20 spins), ~87 CPC is returned on average over a large sample. ~23% win rate. Reels spin independently; reel 3 has reduced rare-symbol frequency to create near-miss tension.
+              ~87% RTP -- per spin wager is 5 CPC (1 token). For every 100 CPC wagered (~20 spins), ~87 CPC is returned on average over a large sample. ~23% win rate. Reels spin independently; reel 3 has reduced rare-symbol frequency to create near-miss tension.
             </div>
           </div>
         )}
       </div>
     </div>
   );
-}
-
-function hexToRgb(hex) {
-  const r = parseInt(hex.slice(1,3),16);
-  const g = parseInt(hex.slice(3,5),16);
-  const b = parseInt(hex.slice(5,7),16);
-  return `${r},${g},${b}`;
 }
 
 const styles = {
