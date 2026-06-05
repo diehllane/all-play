@@ -6,6 +6,8 @@ import { purchaseStoreItem, setPrizePaid } from '../../lib/slots';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
+const SPIN_COOLDOWN_SECS = 4; // max 15 spins/min — change here to adjust
+
 const ALL_SYMBOLS = ['masterball','pokeball','greatball','ultraball','pikachu','eevee','rare_candy','potion','berry'];
 
 const SYMBOL_LABELS = {
@@ -264,9 +266,8 @@ export default function SlotsPage() {
       setLastOutcome(result);
       setSpinState('result_shown');
 
-      // Start 5-second cooldown (12 spins/min max)
-      const COOLDOWN_SECS = 5;
-      setCooldownLeft(COOLDOWN_SECS);
+      // Start cooldown
+      setCooldownLeft(SPIN_COOLDOWN_SECS);
       if (cooldownRef.current) clearInterval(cooldownRef.current);
       cooldownRef.current = setInterval(() => {
         setCooldownLeft(prev => {
@@ -281,9 +282,8 @@ export default function SlotsPage() {
     } catch (e) {
       setSpinError(e.message);
       setSpinState('idle');
-      // Still apply a short cooldown on error to prevent hammering
-      const COOLDOWN_SECS = 4;
-      setCooldownLeft(COOLDOWN_SECS);
+      // Still apply cooldown on error
+      setCooldownLeft(SPIN_COOLDOWN_SECS);
       if (cooldownRef.current) clearInterval(cooldownRef.current);
       cooldownRef.current = setInterval(() => {
         setCooldownLeft(prev => {
