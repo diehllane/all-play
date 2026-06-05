@@ -6,7 +6,7 @@ import { purchaseStoreItem, setPrizePaid } from '../../lib/slots';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
-const SPIN_COOLDOWN_SECS = 4; // max 15 spins/min — change here to adjust
+const SPIN_COOLDOWN_SECS = 3; // max 20 spins/min — change here to adjust
 
 const ALL_SYMBOLS = ['masterball','pokeball','greatball','ultraball','pikachu','eevee','rare_candy','potion','berry'];
 
