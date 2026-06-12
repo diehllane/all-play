@@ -455,6 +455,31 @@ export async function awardTokens(eventId, playerId, amount, reason, actorId) {
   return newBalance;
 }
 
+// ─── MANUAL CPC AWARD / DEDUCT ───────────────────────────────────────────────
+
+export async function awardCPC(eventId, playerId, amount, reason, actorId) {
+  const { data: player, error: pErr } = await supabase
+    .from('slots_players').select('casino_prize_coins').eq('id', playerId).single();
+  if (pErr) throw pErr;
+
+  const newBalance = Math.max(0, player.casino_prize_coins + amount);
+  const { error: upErr } = await supabase
+    .from('slots_players')
+    .update({ casino_prize_coins: newBalance })
+    .eq('id', playerId);
+  if (upErr) throw upErr;
+
+  await supabase.from('slots_audit_log').insert({
+    event_id:  eventId,
+    actor_id:  actorId,
+    action:    amount >= 0 ? 'cpc_award' : 'cpc_deduct',
+    player_id: playerId,
+    metadata:  { amount, reason, new_balance: newBalance },
+  });
+
+  return newBalance;
+}
+
 // ─── EVENT CREATION SEED ─────────────────────────────────────────────────────
 
 /**
