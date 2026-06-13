@@ -3,8 +3,6 @@ import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 
-// Symbol images are hardcoded in the app — no per-event custom URLs for reels.
-// Banner image and player avatars are still configurable.
 const ALL_SYMBOLS = ['masterball','pokeball','greatball','ultraball','pikachu','eevee','rare_candy','potion','berry'];
 const SYMBOL_LABELS = { masterball:'Masterball', pokeball:'Pokeball', greatball:'Greatball', ultraball:'Ultraball', pikachu:'Pikachu', eevee:'Eevee', rare_candy:'Rare Candy', potion:'Potion', berry:'Berry' };
 const SYMBOL_IMAGES = {
@@ -135,6 +133,7 @@ export default function SlotsEditPage() {
   const [newItemLabel, setNewItemLabel] = useState('');
   const [newItemCost, setNewItemCost] = useState('');
   const [newItemQty, setNewItemQty] = useState('');
+  const [newItemMaxPerPlayer, setNewItemMaxPerPlayer] = useState('');
   const [newItemTokens, setNewItemTokens] = useState('');
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [newPlayerColor, setNewPlayerColor] = useState('#c62828');
@@ -320,10 +319,12 @@ export default function SlotsEditPage() {
     const label = newItemLabel.trim();
     if (!label || !newItemCost) return;
     const insertPayload = {
-      event_id: eventId, label,
+      event_id: eventId,
+      label,
       cost_cpc: parseInt(newItemCost) || 0,
       quantity: newItemQty ? parseInt(newItemQty) : null,
       quantity_remaining: newItemQty ? parseInt(newItemQty) : null,
+      max_per_player: newItemMaxPerPlayer ? parseInt(newItemMaxPerPlayer) : null,
       pays_out_slot_tokens: newItemTokens ? parseInt(newItemTokens) : null,
       is_active: true,
     };
@@ -336,7 +337,7 @@ export default function SlotsEditPage() {
         } else { flash('Error: ' + e.message); return; }
       }
     } catch (err) { flash('Error: ' + err.message); return; }
-    setNewItemLabel(''); setNewItemCost(''); setNewItemQty(''); setNewItemTokens('');
+    setNewItemLabel(''); setNewItemCost(''); setNewItemQty(''); setNewItemMaxPerPlayer(''); setNewItemTokens('');
     await loadAll();
   };
 
@@ -353,12 +354,13 @@ export default function SlotsEditPage() {
       if (!label) { errors.push('Row missing label'); continue; }
       const cost = parseInt(row['cost_cpc']) || 0;
       const qty = row['quantity'] ? parseInt(row['quantity']) : null;
-      const paysOut = ['true','1','yes'].includes(String(row['pays_out_slot_tokens']).toLowerCase());
+      const maxPP = row['max_per_player'] ? parseInt(row['max_per_player']) : null;
+      const paysOut = row['pays_out_slot_tokens'] ? parseInt(row['pays_out_slot_tokens']) : null;
       const existing = storeItems.find(s => s.label?.toLowerCase() === label.toLowerCase());
       if (existing) {
-        await supabase.from('slots_store_items').update({ cost_cpc: cost, quantity: qty, pays_out_slot_tokens: paysOut }).eq('id', existing.id);
+        await supabase.from('slots_store_items').update({ cost_cpc: cost, quantity: qty, max_per_player: maxPP, pays_out_slot_tokens: paysOut }).eq('id', existing.id);
       } else {
-        await supabase.from('slots_store_items').insert({ event_id: eventId, label, cost_cpc: cost, quantity: qty, quantity_remaining: qty, pays_out_slot_tokens: paysOut, is_active: true });
+        await supabase.from('slots_store_items').insert({ event_id: eventId, label, cost_cpc: cost, quantity: qty, quantity_remaining: qty, max_per_player: maxPP, pays_out_slot_tokens: paysOut, is_active: true });
       }
       imported++;
     }
@@ -369,17 +371,18 @@ export default function SlotsEditPage() {
 
   const exportStoreItems = () => {
     downloadCSV(`slots_store_items_${eventId}.csv`,
-      ['label', 'cost_cpc', 'quantity', 'pays_out_slot_tokens', 'sort_order'],
+      ['label', 'cost_cpc', 'quantity', 'max_per_player', 'pays_out_slot_tokens', 'sort_order'],
       storeItems.map((s, i) => ({
         label: s.label, cost_cpc: s.cost_cpc, quantity: s.quantity ?? '',
-        pays_out_slot_tokens: s.pays_out_slot_tokens ? 'true' : 'false', sort_order: s.sort_order ?? i,
+        max_per_player: s.max_per_player ?? '',
+        pays_out_slot_tokens: s.pays_out_slot_tokens ?? '',
+        sort_order: s.sort_order ?? i,
       })));
   };
 
   const enrolledProfileIds = new Set(players.map(p => p.profile_id).filter(Boolean));
   const availableProfiles = allProfiles.filter(prof => !enrolledProfileIds.has(prof.id));
 
-  // Tabs — Symbol Images tab removed; symbols are hardcoded
   const TABS = [['config','⚙️ Configuration'],['categories','🎯 Categories'],['players','👥 Players'],['store','🛒 Store Items']];
 
   return (
@@ -417,7 +420,6 @@ export default function SlotsEditPage() {
               <Field label="Banner Image URL" hint="Replaces the text title in the header when set.">
                 <input value={form.banner_image_url} onChange={e => set('banner_image_url', e.target.value)} style={styles.input} placeholder="https://…" />
               </Field>
-              {/* Symbol image preview — read-only, images are hardcoded */}
               <div style={{ marginBottom: 16 }}>
                 <label style={{ display: 'block', fontSize: 12, color: '#888', marginBottom: 8, fontWeight: 600 }}>Reel Symbols</label>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -643,8 +645,8 @@ export default function SlotsEditPage() {
               <span style={{ fontSize: 13, opacity: 0.6 }}>{storeItems.length} items</span>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <CsvImporter label="slots_store_items" themeColor={theme}
-                  sampleHeaders={['label', 'cost_cpc', 'quantity', 'pays_out_slot_tokens', 'sort_order']}
-                  sampleRow={{ label: 'Masterball', cost_cpc: 500, quantity: 1, pays_out_slot_tokens: 'false', sort_order: 0 }}
+                  sampleHeaders={['label', 'cost_cpc', 'quantity', 'max_per_player', 'pays_out_slot_tokens', 'sort_order']}
+                  sampleRow={{ label: 'Masterball', cost_cpc: 500, quantity: 1, max_per_player: '', pays_out_slot_tokens: '', sort_order: 0 }}
                   onImport={importStoreItems} />
                 <button onClick={exportStoreItems}
                   style={{ background: 'none', border: '1px solid #333', color: '#666', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>
@@ -660,7 +662,9 @@ export default function SlotsEditPage() {
                 <input type="number" value={newItemCost} onChange={e => setNewItemCost(e.target.value)}
                   placeholder="CPC cost" style={{ ...styles.input, width: 100 }} />
                 <input type="number" value={newItemQty} onChange={e => setNewItemQty(e.target.value)}
-                  placeholder="Qty (∞ if blank)" style={{ ...styles.input, width: 120 }} />
+                  placeholder="Total qty (∞ if blank)" style={{ ...styles.input, width: 150 }} />
+                <input type="number" value={newItemMaxPerPlayer} onChange={e => setNewItemMaxPerPlayer(e.target.value)}
+                  placeholder="Max per player (∞ if blank)" style={{ ...styles.input, width: 180 }} />
                 <input type="number" value={newItemTokens} onChange={e => setNewItemTokens(e.target.value)}
                   placeholder="Pays tokens (opt)" style={{ ...styles.input, width: 140 }} />
                 <button onClick={addStoreItem} disabled={!newItemLabel.trim() || !newItemCost}
@@ -668,7 +672,9 @@ export default function SlotsEditPage() {
                   + Add
                 </button>
               </div>
-              <div style={{ fontSize: 11, color: '#555' }}>Qty blank = unlimited. Pays tokens = token bundle items that award Slot Tokens on purchase.</div>
+              <div style={{ fontSize: 11, color: '#555' }}>
+                Total qty = overall stock cap (blank = unlimited). Max per player = how many times one player can buy this item (blank = unlimited). Pays tokens = token bundle items that award Slot Tokens on purchase.
+              </div>
             </div>
             {storeItems.length === 0 && <div style={{ color: '#555', fontSize: 13, padding: '16px 0' }}>No store items yet.</div>}
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -677,7 +683,8 @@ export default function SlotsEditPage() {
                   <tr style={{ borderBottom: '1px solid #222' }}>
                     <th style={{ padding: '8px 12px', textAlign: 'left', color: '#666', fontWeight: 600 }}>Item</th>
                     <th style={{ padding: '8px 12px', textAlign: 'right', color: '#666', fontWeight: 600 }}>Cost (CPC)</th>
-                    <th style={{ padding: '8px 12px', textAlign: 'right', color: '#666', fontWeight: 600 }}>Qty</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right', color: '#666', fontWeight: 600 }}>Total Qty</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right', color: '#666', fontWeight: 600 }}>Max / Player</th>
                     <th style={{ padding: '8px 12px', textAlign: 'center', color: '#666', fontWeight: 600 }}>Pays Tokens</th>
                     <th style={{ padding: '8px 12px', textAlign: 'center', color: '#666', fontWeight: 600 }}>Status</th>
                     <th style={{ padding: '8px 12px' }}></th>
@@ -690,6 +697,9 @@ export default function SlotsEditPage() {
                     <td style={{ padding: '8px 12px', color: '#ddd' }}>{s.label}</td>
                     <td style={{ padding: '8px 12px', textAlign: 'right', color: '#ffd700' }}>{s.cost_cpc}</td>
                     <td style={{ padding: '8px 12px', textAlign: 'right', color: '#ddd' }}>{s.quantity ?? '∞'}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right', color: s.max_per_player ? '#90CAF9' : '#555' }}>
+                      {s.max_per_player ?? '∞'}
+                    </td>
                     <td style={{ padding: '8px 12px', textAlign: 'center' }}>
                       <span style={{ color: s.pays_out_slot_tokens ? '#4ade80' : '#555' }}>
                         {s.pays_out_slot_tokens ? `🎟️ ${s.pays_out_slot_tokens}` : '—'}
