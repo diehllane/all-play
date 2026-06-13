@@ -114,6 +114,41 @@ export async function fetchPayoutTable(eventId) {
   return data ?? [];
 }
 
+// ─── PER-PLAYER PURCHASE COUNT ────────────────────────────────────────────────
+
+/**
+ * Returns the number of times a specific player has purchased a specific store item.
+ */
+export async function getPlayerPurchaseCount(playerId, storeItemId) {
+  const { count, error } = await supabase
+    .from('slots_prize_board')
+    .select('id', { count: 'exact', head: true })
+    .eq('player_id', playerId)
+    .eq('store_item_id', storeItemId);
+  if (error) throw error;
+  return count ?? 0;
+}
+
+/**
+ * Returns a map of store_item_id -> purchase count for a given player across
+ * all items in the provided list. Used to batch-load purchase counts for the
+ * public store page without N+1 queries.
+ */
+export async function getPlayerPurchaseCounts(playerId, storeItemIds) {
+  if (!storeItemIds.length) return {};
+  const { data, error } = await supabase
+    .from('slots_prize_board')
+    .select('store_item_id')
+    .eq('player_id', playerId)
+    .in('store_item_id', storeItemIds);
+  if (error) throw error;
+  const counts = {};
+  for (const row of data ?? []) {
+    counts[row.store_item_id] = (counts[row.store_item_id] ?? 0) + 1;
+  }
+  return counts;
+}
+
 // ─── COMMIT DAY ───────────────────────────────────────────────────────────────
 
 export async function commitSlotsDay(eventId, dayNumber, userId) {
@@ -217,7 +252,6 @@ export async function commitSlotsDay(eventId, dayNumber, userId) {
 
   // 10. Fire Discord webhook (non-blocking)
   if (config.discord_webhook_url) {
-    // Re-fetch updated balances for accurate total_cpc_won in message
     const { data: updatedPlayers } = await supabase
       .from('slots_players')
       .select('id, display_name, slot_tokens, total_cpc_won')
@@ -290,11 +324,6 @@ export async function undoSlotsCommit(eventId) {
 
 // ─── DISCORD WEBHOOK ─────────────────────────────────────────────────────────
 
-/**
- * Sends the Commit Day message to Discord.
- * Ranked by points earned that day (desc).
- * Total CPC shown = total_cpc_won (lifetime gross, includes spent).
- */
 async function sendSlotsDiscordWebhook({ webhookUrl, eventTitle, dayNumber, playerResults, playerMap }) {
   if (!webhookUrl) return;
 
@@ -333,11 +362,12 @@ async function sendSlotsDiscordWebhook({ webhookUrl, eventTitle, dayNumber, play
 
 /**
  * Purchase a prize store item for a player.
+ * Enforces overall quantity limit and per-player limit (max_per_player).
  * Deducts CPC, inserts prize_board row, optionally awards slot tokens,
  * decrements quantity, writes audit log.
  */
 export async function purchaseStoreItem(eventId, playerId, storeItemId, actorId) {
-  // 1. Fetch player and item atomically
+  // 1. Fetch player and item
   const [{ data: player, error: pErr }, { data: item, error: iErr }] = await Promise.all([
     supabase.from('slots_players').select('*').eq('id', playerId).single(),
     supabase.from('slots_store_items').select('*').eq('id', storeItemId).single(),
@@ -348,33 +378,38 @@ export async function purchaseStoreItem(eventId, playerId, storeItemId, actorId)
   if (!item)   throw new Error('Store item not found.');
   if (!item.is_active) throw new Error('This item is no longer available.');
 
+  // 2. Check overall quantity
   if (item.quantity_remaining !== null && item.quantity_remaining <= 0) {
     throw new Error('This item is sold out.');
   }
+
+  // 3. Check per-player limit
+  if (item.max_per_player !== null) {
+    const playerCount = await getPlayerPurchaseCount(playerId, storeItemId);
+    if (playerCount >= item.max_per_player) {
+      throw new Error(`You have already purchased this item the maximum number of times (${item.max_per_player}).`);
+    }
+  }
+
+  // 4. Check CPC balance
   if (player.casino_prize_coins < item.cost_cpc) {
     throw new Error(`Not enough Casino Prize Coins. Need ${item.cost_cpc}, have ${player.casino_prize_coins}.`);
   }
 
-  // 2. Deduct CPC
+  // 5. Deduct CPC and optionally award tokens
   const newCpc = player.casino_prize_coins - item.cost_cpc;
   let newTokens = player.slot_tokens;
-
-  // 3. Award slot tokens if this item is a token bundle
   if (item.pays_out_slot_tokens && item.pays_out_slot_tokens > 0) {
     newTokens += item.pays_out_slot_tokens;
   }
 
-  // 4. Update player balances
   const { error: upErr } = await supabase
     .from('slots_players')
-    .update({
-      casino_prize_coins: newCpc,
-      slot_tokens:        newTokens,
-    })
+    .update({ casino_prize_coins: newCpc, slot_tokens: newTokens })
     .eq('id', playerId);
   if (upErr) throw upErr;
 
-  // 5. Decrement quantity if limited
+  // 6. Decrement overall quantity if limited
   if (item.quantity_remaining !== null) {
     const { error: qErr } = await supabase
       .from('slots_store_items')
@@ -383,20 +418,20 @@ export async function purchaseStoreItem(eventId, playerId, storeItemId, actorId)
     if (qErr) throw qErr;
   }
 
-  // 6. Insert prize board row
+  // 7. Insert prize board row
   const { data: prizeRow, error: prErr } = await supabase
     .from('slots_prize_board')
     .insert({
-      event_id:            eventId,
-      player_id:           playerId,
-      store_item_id:       storeItemId,
+      event_id:             eventId,
+      player_id:            playerId,
+      store_item_id:        storeItemId,
       cost_cpc_at_purchase: item.cost_cpc,
     })
     .select()
     .single();
   if (prErr) throw prErr;
 
-  // 7. Audit log
+  // 8. Audit log
   await supabase.from('slots_audit_log').insert({
     event_id:  eventId,
     actor_id:  actorId,
@@ -482,11 +517,6 @@ export async function awardCPC(eventId, playerId, amount, reason, actorId) {
 
 // ─── EVENT CREATION SEED ─────────────────────────────────────────────────────
 
-/**
- * Called immediately after inserting a new slots event row.
- * Creates the config row, seeds the fixed payout table, and
- * inserts any initial categories provided by the wizard.
- */
 export async function seedSlotsEvent({
   eventId,
   gameTitle,
@@ -498,9 +528,8 @@ export async function seedSlotsEvent({
   scoreRounding,
   minTokensPerDay,
   maxTokensPerDay,
-  categories = [],  // [{ label, point_value, sort_order }]
+  categories = [],
 }) {
-  // 1. Insert slots_config
   const { error: cfgErr } = await supabase.from('slots_config').insert({
     event_id:            eventId,
     game_title:          gameTitle,
@@ -516,11 +545,9 @@ export async function seedSlotsEvent({
   });
   if (cfgErr) throw cfgErr;
 
-  // 2. Seed fixed payout table via DB function
   const { error: seedErr } = await supabase.rpc('seed_slots_payout_table', { p_event_id: eventId });
   if (seedErr) throw seedErr;
 
-  // 3. Insert categories if provided
   if (categories.length > 0) {
     const rows = categories
       .filter(c => c.label?.trim())
