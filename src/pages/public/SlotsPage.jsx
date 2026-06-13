@@ -2,11 +2,11 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-import { purchaseStoreItem, setPrizePaid } from '../../lib/slots';
+import { purchaseStoreItem, setPrizePaid, getPlayerPurchaseCounts } from '../../lib/slots';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
-const SPIN_COOLDOWN_SECS = 4; // max 15 spins/min — change here to adjust
+const SPIN_COOLDOWN_SECS = 4;
 
 const ALL_SYMBOLS = ['masterball','pokeball','greatball','ultraball','pikachu','eevee','rare_candy','potion','berry'];
 
@@ -29,15 +29,9 @@ const SYMBOL_IMAGES = {
 };
 
 const SYMBOL_COLORS = {
-  masterball: '#9c27b0',
-  pokeball:   '#e53935',
-  greatball:  '#1565c0',
-  ultraball:  '#f9a825',
-  pikachu:    '#f57f17',
-  eevee:      '#8d6e63',
-  rare_candy: '#e91e63',
-  potion:     '#43a047',
-  berry:      '#6a1b9a',
+  masterball: '#9c27b0', pokeball: '#e53935', greatball: '#1565c0',
+  ultraball: '#f9a825', pikachu: '#f57f17', eevee: '#8d6e63',
+  rare_candy: '#e91e63', potion: '#43a047', berry: '#6a1b9a',
 };
 
 function SpinningReel({ symbol, isSpinning, stopDelay, theme, getSymbolImg }) {
@@ -132,7 +126,9 @@ export default function SlotsPage() {
   const [prizeBoard, setPrizeBoard] = useState([]);
   const [payoutTable, setPayoutTable] = useState([]);
   const [recentSpins, setRecentSpins] = useState([]);
-  const [bestSpins, setBestSpins] = useState({});  // player_id -> { payout_cpc, reels }
+  const [bestSpins, setBestSpins] = useState({});
+  // Per-player purchase counts for store items — keyed by store_item_id
+  const [myPurchaseCounts, setMyPurchaseCounts] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -170,7 +166,6 @@ export default function SlotsPage() {
       setPrizeBoard(prizesRes.data || []);
       setPayoutTable(payoutRes.data || []);
 
-      // Fetch best spin per player — one query, max payout per player_id
       if (playerList.length > 0) {
         const playerIds = playerList.map(p => p.id);
         const { data: bestSpinData } = await supabase
@@ -181,7 +176,6 @@ export default function SlotsPage() {
           .gt('payout_cpc', 0)
           .order('payout_cpc', { ascending: false });
 
-        // Keep only the top spin per player
         const bestMap = {};
         for (const spin of bestSpinData || []) {
           if (!bestMap[spin.player_id]) bestMap[spin.player_id] = spin;
@@ -201,6 +195,18 @@ export default function SlotsPage() {
     setMyPlayer(data);
   }, [eventId, user]);
 
+  const loadMyPurchaseCounts = useCallback(async (playerId, items) => {
+    if (!playerId || !items.length) { setMyPurchaseCounts({}); return; }
+    const limitedItems = items.filter(i => i.max_per_player !== null);
+    if (!limitedItems.length) { setMyPurchaseCounts({}); return; }
+    try {
+      const counts = await getPlayerPurchaseCounts(playerId, limitedItems.map(i => i.id));
+      setMyPurchaseCounts(counts);
+    } catch (e) {
+      console.warn('Could not load purchase counts:', e.message);
+    }
+  }, []);
+
   const loadRecentSpins = useCallback(async (pid) => {
     if (!pid) return;
     const { data } = await supabase.from('slots_spins').select('*').eq('player_id', pid).order('spun_at', { ascending: false }).limit(10);
@@ -209,7 +215,12 @@ export default function SlotsPage() {
 
   useEffect(() => { loadAll(); }, [loadAll]);
   useEffect(() => { loadMyPlayer(); }, [loadMyPlayer]);
-  useEffect(() => { if (myPlayer) loadRecentSpins(myPlayer.id); }, [myPlayer, loadRecentSpins]);
+  useEffect(() => {
+    if (myPlayer) {
+      loadRecentSpins(myPlayer.id);
+      loadMyPurchaseCounts(myPlayer.id, storeItems);
+    }
+  }, [myPlayer, storeItems, loadRecentSpins, loadMyPurchaseCounts]);
 
   useEffect(() => {
     const ch = supabase.channel(`slots-page-${eventId}`)
@@ -284,6 +295,8 @@ export default function SlotsPage() {
       setPurchaseMsg(`Purchased "${item.label}"!`);
       await loadMyPlayer();
       await loadAll();
+      // Refresh purchase counts after a successful purchase
+      if (myPlayer) await loadMyPurchaseCounts(myPlayer.id, storeItems);
     } catch (e) {
       setPurchaseMsg(`Error: ${e.message}`);
     } finally {
@@ -467,21 +480,60 @@ export default function SlotsPage() {
               {storeItems.map(item => {
                 const canAfford = myPlayer && myCpc >= item.cost_cpc;
                 const soldOut = item.quantity_remaining !== null && item.quantity_remaining <= 0;
+
+                // Per-player limit check
+                const myCount = myPlayer ? (myPurchaseCounts[item.id] ?? 0) : 0;
+                const limitReached = item.max_per_player !== null && myCount >= item.max_per_player;
+                const remaining = item.max_per_player !== null ? item.max_per_player - myCount : null;
+
+                const isDisabled = !user || !myPlayer || !canAfford || soldOut || limitReached;
+
+                let btnLabel = 'Purchase';
+                if (!user) btnLabel = 'Log In';
+                else if (!myPlayer) btnLabel = 'Not Enrolled';
+                else if (soldOut) btnLabel = 'Sold Out';
+                else if (limitReached) btnLabel = 'Limit Reached';
+                else if (!canAfford) btnLabel = 'Insufficient CPC';
+                if (purchaseLoading === item.id) btnLabel = '...';
+
                 return (
-                  <div key={item.id} style={{ ...styles.storeCard, borderColor: soldOut ? '#333' : theme, opacity: soldOut ? 0.5 : 1 }}>
+                  <div key={item.id} style={{ ...styles.storeCard, borderColor: (soldOut || limitReached) ? '#333' : theme, opacity: (soldOut || limitReached) ? 0.55 : 1 }}>
                     {item.image_url && <img src={item.image_url} alt={item.label} style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: '8px 8px 0 0' }} />}
                     <div style={styles.storeCardBody}>
                       <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{item.label}</div>
                       {item.description && <div style={{ fontSize: 12, opacity: 0.6, marginBottom: 8 }}>{item.description}</div>}
                       {item.pays_out_slot_tokens && <div style={{ fontSize: 12, color: '#90CAF9', marginBottom: 6 }}>+{item.pays_out_slot_tokens} tokens</div>}
+
+                      {/* Overall stock */}
                       {item.quantity_remaining !== null && (
-                        <div style={{ fontSize: 11, opacity: 0.5, marginBottom: 6 }}>{soldOut ? 'Sold out' : `${item.quantity_remaining} remaining`}</div>
+                        <div style={{ fontSize: 11, opacity: 0.5, marginBottom: 4 }}>
+                          {soldOut ? 'Sold out' : `${item.quantity_remaining} in stock`}
+                        </div>
                       )}
+
+                      {/* Per-player limit — show for all visitors when a limit exists */}
+                      {item.max_per_player !== null && (
+                        <div style={{ fontSize: 11, marginBottom: 6, color: limitReached ? '#ef5350' : '#90CAF9' }}>
+                          {myPlayer
+                            ? limitReached
+                              ? `Limit reached (${item.max_per_player}/${item.max_per_player})`
+                              : `${myCount}/${item.max_per_player} purchased`
+                            : `Limit: ${item.max_per_player} per player`
+                          }
+                        </div>
+                      )}
+
                       <div style={{ ...styles.storePrice, color: '#d4af37' }}>{item.cost_cpc.toLocaleString()} CPC</div>
-                      <button onClick={() => handlePurchase(item)}
-                        disabled={!user || !myPlayer || !canAfford || soldOut || purchaseLoading === item.id}
-                        style={{ ...styles.purchaseBtn, background: (soldOut || !canAfford) ? '#333' : theme, cursor: (!user || !myPlayer || !canAfford || soldOut) ? 'not-allowed' : 'pointer', opacity: (!user || !myPlayer || !canAfford || soldOut) ? 0.5 : 1 }}>
-                        {purchaseLoading === item.id ? '...' : soldOut ? 'Sold Out' : !user ? 'Log In' : !myPlayer ? 'Not Enrolled' : !canAfford ? 'Insufficient CPC' : 'Purchase'}
+                      <button
+                        onClick={() => handlePurchase(item)}
+                        disabled={isDisabled || purchaseLoading === item.id}
+                        style={{
+                          ...styles.purchaseBtn,
+                          background: isDisabled ? '#333' : theme,
+                          cursor: isDisabled ? 'not-allowed' : 'pointer',
+                          opacity: isDisabled ? 0.5 : 1,
+                        }}>
+                        {btnLabel}
                       </button>
                     </div>
                   </div>
