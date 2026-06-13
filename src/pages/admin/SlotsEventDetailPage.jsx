@@ -27,13 +27,11 @@ export default function SlotsEventDetailPage() {
 
   const [activeTab, setActiveTab] = useState('overview');
 
-  // Award tokens state
   const [awardPlayerId, setAwardPlayerId] = useState('');
   const [awardAmount, setAwardAmount] = useState('');
   const [awardReason, setAwardReason] = useState('');
   const [awardLoading, setAwardLoading] = useState(false);
 
-  // Award CPC state
   const [cpcPlayerId, setCpcPlayerId] = useState('');
   const [cpcAmount, setCpcAmount] = useState('');
   const [cpcReason, setCpcReason] = useState('');
@@ -143,6 +141,14 @@ export default function SlotsEventDetailPage() {
     loadAll();
   };
 
+  // Build per-item purchase counts from prize board for admin display
+  const purchaseCountsByItem = {};
+  for (const entry of prizeBoard) {
+    if (entry.store_item_id) {
+      purchaseCountsByItem[entry.store_item_id] = (purchaseCountsByItem[entry.store_item_id] ?? 0) + 1;
+    }
+  }
+
   const TABS = [
     ['overview',  'Overview'],
     ['players',   'Players'],
@@ -156,7 +162,6 @@ export default function SlotsEventDetailPage() {
 
   return (
     <div style={s.page}>
-      {/* Header */}
       <div style={{ padding: '20px 28px 0', background: '#0a0a0f', borderBottom: `2px solid ${theme}` }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
           <div>
@@ -183,7 +188,6 @@ export default function SlotsEventDetailPage() {
           </div>
         )}
 
-        {/* Horizontal tabs */}
         <div style={{ display: 'flex', gap: 0, marginTop: 4, flexWrap: 'wrap' }}>
           {TABS.map(([id, label]) => (
             <button key={id} onClick={() => setActiveTab(id)} style={{
@@ -353,7 +357,13 @@ export default function SlotsEventDetailPage() {
               Use <Link to={`/admin/slots/${eventId}/edit`} style={{ color: theme }}>Edit Config</Link> to add, import, or export store items with full CSV support.
             </p>
             <table style={s.table}>
-              <thead><tr>{['Item','Cost (CPC)','Qty Left','Pays Tokens','Status',''].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
+              <thead>
+                <tr>
+                  {['Item','Cost (CPC)','Total Qty Left','Max / Player','Pays Tokens','Status',''].map(h => (
+                    <th key={h} style={s.th}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
               <tbody>
                 {storeItems.map(item => (
                   <tr key={item.id} style={{ opacity: item.is_active ? 1 : 0.4 }}>
@@ -362,13 +372,16 @@ export default function SlotsEventDetailPage() {
                       {item.description && <div style={{ fontSize: 11, opacity: 0.5 }}>{item.description}</div>}
                     </td>
                     <td style={s.tdNum}>C {item.cost_cpc}</td>
-                    <td style={s.tdNum}>{item.quantity_remaining === null ? 'inf' : item.quantity_remaining}</td>
+                    <td style={s.tdNum}>{item.quantity_remaining === null ? '∞' : item.quantity_remaining}</td>
+                    <td style={{ ...s.tdNum, color: item.max_per_player ? '#90CAF9' : '#555' }}>
+                      {item.max_per_player ?? '∞'}
+                    </td>
                     <td style={s.tdNum}>{item.pays_out_slot_tokens ? `T ${item.pays_out_slot_tokens}` : '--'}</td>
                     <td style={s.td}><span style={{ color: item.is_active ? '#4CAF50' : '#888', fontSize: 12 }}>{item.is_active ? 'Active' : 'Inactive'}</span></td>
                     <td style={s.td}><button onClick={() => toggleStoreItem(item)} style={{ ...s.smallBtn, background: '#555' }}>{item.is_active ? 'Hide' : 'Show'}</button></td>
                   </tr>
                 ))}
-                {storeItems.length === 0 && <tr><td colSpan={6} style={{ ...s.td, textAlign: 'center', color: '#555', padding: '32px 0' }}>No store items yet.</td></tr>}
+                {storeItems.length === 0 && <tr><td colSpan={7} style={{ ...s.td, textAlign: 'center', color: '#555', padding: '32px 0' }}>No store items yet.</td></tr>}
               </tbody>
             </table>
           </div>
