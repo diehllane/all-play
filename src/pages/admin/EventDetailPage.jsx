@@ -89,8 +89,14 @@ export default function EventDetailPage() {
   async function deleteEvent() {
     setSaving(true)
     try {
-      const { error } = await supabase.from('events').delete().eq('id', id)
+      // .select() forces Supabase to return the deleted row(s). Without it, a
+      // delete blocked by RLS (0 rows affected) still comes back with no
+      // error, so the UI would report success while nothing was deleted.
+      const { data, error } = await supabase.from('events').delete().eq('id', id).select()
       if (error) throw error
+      if (!data || data.length === 0) {
+        throw new Error('Delete affected 0 rows. This usually means a permissions (RLS) mismatch — the event was not created_by your current account, or your session is stale. Try logging out and back in, or delete it directly via Supabase.')
+      }
       navigate('/admin')
     } catch (err) { setMessage({ type: 'error', text: err.message }); setSaving(false) }
   }
