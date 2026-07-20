@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-import { commitSlotsDay, undoSlotsCommit } from '../../lib/slots';
+import { commitSlotsDay, undoSlotsCommit, calcTokens } from '../../lib/slots';
 
 export default function SlotsScoreEntryPage() {
   const { eventId } = useParams();
@@ -191,7 +191,7 @@ export default function SlotsScoreEntryPage() {
           {addMsg && <div style={styles.errorMsg}>{addMsg}</div>}
           <div style={{ fontSize: 11, opacity: 0.4, marginTop: 8 }}>
             Token preview: {selectedCat && pointsPreview != null
-              ? `${pointsPreview} pts / ${config?.score_divisor ?? 1} = ~${Math.floor(pointsPreview / (config?.score_divisor ?? 1))} tokens`
+              ? `${pointsPreview} pts ${config?.score_operation === 'multiply' ? '×' : '/'} ${config?.score_divisor ?? 1} = ~${calcTokens(pointsPreview, config || {})} tokens`
               : '--'}
           </div>
         </div>
@@ -199,7 +199,7 @@ export default function SlotsScoreEntryPage() {
         <div style={styles.tallyGrid}>
           {Object.values(byPlayer).map(({ player, entries: pEntries }) => {
             const totalPts = pEntries.reduce((s, e) => s + (e.points_calculated || 0), 0);
-            const tokenPreview = Math.floor(totalPts / (config?.score_divisor ?? 1));
+            const tokenPreview = calcTokens(totalPts, config || {});
             return (
               <div key={player?.display_name} style={{ ...styles.tallyCard, borderColor: theme + '44' }}>
                 <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 14 }}>{player?.display_name}</div>
