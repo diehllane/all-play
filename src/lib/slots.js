@@ -1,12 +1,34 @@
+
+Cloud
+/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Slots · JS
 // src/lib/slots.js
 // Core logic for the Slots game mode.
 // Covers: commit day, undo commit, token calculation, Discord webhook, event seeding.
 // Spin resolution is handled server-side by the slots-spin Edge Function.
-
+ 
 import { supabase } from './supabase';
-
+ 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-
+ 
 export const DEFAULT_SYMBOL_IMAGES = {
   masterball: null,
   pokeball:   null,
@@ -18,7 +40,7 @@ export const DEFAULT_SYMBOL_IMAGES = {
   potion:     null,
   berry:      null,
 };
-
+ 
 export const SYMBOL_LABELS = {
   masterball: 'Masterball',
   pokeball:   'Pokeball',
@@ -30,9 +52,9 @@ export const SYMBOL_LABELS = {
   potion:     'Potion',
   berry:      'Berry',
 };
-
+ 
 // ─── TOKEN CALCULATION ────────────────────────────────────────────────────────
-
+ 
 /**
  * Calculate tokens awarded to a player for a given raw score.
  * Mirrors the formula used by other game modes.
@@ -45,26 +67,26 @@ export function calcTokens(rawScore, config) {
     min_tokens_per_day = 0,
     max_tokens_per_day = 0,
   } = config;
-
+ 
   let tokens;
   if (score_operation === 'multiply') {
     tokens = rawScore * score_divisor;
   } else {
     tokens = score_divisor > 0 ? rawScore / score_divisor : rawScore;
   }
-
+ 
   if (score_rounding === 'ceil')  tokens = Math.ceil(tokens);
   else if (score_rounding === 'round') tokens = Math.round(tokens);
   else tokens = Math.floor(tokens);
-
+ 
   tokens = Math.max(tokens, min_tokens_per_day || 0);
   if (max_tokens_per_day > 0) tokens = Math.min(tokens, max_tokens_per_day);
-
+ 
   return tokens;
 }
-
+ 
 // ─── DATA FETCHING ────────────────────────────────────────────────────────────
-
+ 
 export async function fetchSlotsEventData(eventId) {
   const [
     { data: config },
@@ -81,7 +103,7 @@ export async function fetchSlotsEventData(eventId) {
   ]);
   return { config, categories, players, commits, storeItems };
 }
-
+ 
 export async function fetchUncommittedEntries(eventId, dayNumber) {
   const { data, error } = await supabase
     .from('slots_score_entries')
@@ -93,7 +115,7 @@ export async function fetchUncommittedEntries(eventId, dayNumber) {
   if (error) throw error;
   return data ?? [];
 }
-
+ 
 export async function getNextDayNumber(eventId) {
   const { data } = await supabase
     .from('slots_commits')
@@ -103,7 +125,7 @@ export async function getNextDayNumber(eventId) {
     .limit(1);
   return data?.length > 0 ? data[0].day_number + 1 : 1;
 }
-
+ 
 export async function fetchPayoutTable(eventId) {
   const { data, error } = await supabase
     .from('slots_payout_table')
@@ -113,9 +135,9 @@ export async function fetchPayoutTable(eventId) {
   if (error) throw error;
   return data ?? [];
 }
-
+ 
 // ─── PER-PLAYER PURCHASE COUNT ────────────────────────────────────────────────
-
+ 
 /**
  * Returns the number of times a specific player has purchased a specific store item.
  */
@@ -128,7 +150,7 @@ export async function getPlayerPurchaseCount(playerId, storeItemId) {
   if (error) throw error;
   return count ?? 0;
 }
-
+ 
 /**
  * Returns a map of store_item_id -> purchase count for a given player across
  * all items in the provided list. Used to batch-load purchase counts for the
@@ -148,9 +170,9 @@ export async function getPlayerPurchaseCounts(playerId, storeItemIds) {
   }
   return counts;
 }
-
+ 
 // ─── COMMIT DAY ───────────────────────────────────────────────────────────────
-
+ 
 export async function commitSlotsDay(eventId, dayNumber, userId) {
   // 1. Load config and players
   const { data: config, error: cfgErr } = await supabase
@@ -159,17 +181,17 @@ export async function commitSlotsDay(eventId, dayNumber, userId) {
     .eq('event_id', eventId)
     .single();
   if (cfgErr) throw cfgErr;
-
+ 
   const { data: players, error: plErr } = await supabase
     .from('slots_players')
     .select('*')
     .eq('event_id', eventId);
   if (plErr) throw plErr;
-
+ 
   // 2. Load uncommitted entries for this day
   const entries = await fetchUncommittedEntries(eventId, dayNumber);
   if (entries.length === 0) throw new Error('No entries to commit for this day.');
-
+ 
   // 3. Build pre-commit snapshot of all player balances
   const preCommitSnapshot = {};
   for (const p of players) {
@@ -180,18 +202,18 @@ export async function commitSlotsDay(eventId, dayNumber, userId) {
       total_cpc_won:      p.total_cpc_won,
     };
   }
-
+ 
   // 4. Tally raw score per player from entries
   const rawScores = {};
   for (const e of entries) {
     const pts = Number(e.slots_categories?.point_value ?? 0) * e.encounter_count;
     rawScores[e.player_id] = (rawScores[e.player_id] ?? 0) + pts;
   }
-
+ 
   // 5. Calculate tokens awarded and build player results
   const playerResults = [];
   const playerUpdates = {}; // player_id → { slot_tokens delta }
-
+ 
   for (const p of players) {
     const rawScore = rawScores[p.id] ?? 0;
     const tokensAwarded = calcTokens(rawScore, config);
@@ -204,10 +226,10 @@ export async function commitSlotsDay(eventId, dayNumber, userId) {
       tokenBalanceAfter: p.slot_tokens + tokensAwarded,
     });
   }
-
+ 
   // Sort results by raw score descending for Discord message
   playerResults.sort((a, b) => b.rawScore - a.rawScore);
-
+ 
   // 6. Write commit record
   const { data: commitRow, error: commitErr } = await supabase
     .from('slots_commits')
@@ -222,7 +244,7 @@ export async function commitSlotsDay(eventId, dayNumber, userId) {
     .select()
     .single();
   if (commitErr) throw commitErr;
-
+ 
   // 7. Apply token awards to each player
   for (const p of players) {
     const tokens = playerUpdates[p.id] ?? 0;
@@ -233,7 +255,7 @@ export async function commitSlotsDay(eventId, dayNumber, userId) {
       .eq('id', p.id);
     if (upErr) throw upErr;
   }
-
+ 
   // 8. Mark entries as committed
   const entryIds = entries.map(e => e.id);
   const { error: markErr } = await supabase
@@ -241,7 +263,7 @@ export async function commitSlotsDay(eventId, dayNumber, userId) {
     .update({ committed_at: new Date().toISOString(), commit_id: commitRow.id })
     .in('id', entryIds);
   if (markErr) throw markErr;
-
+ 
   // 9. Write audit log
   await supabase.from('slots_audit_log').insert({
     event_id:  eventId,
@@ -249,17 +271,17 @@ export async function commitSlotsDay(eventId, dayNumber, userId) {
     action:    'commit',
     metadata:  { day_number: dayNumber, commit_id: commitRow.id, player_count: players.length },
   });
-
+ 
   // 10. Fire Discord webhook (non-blocking)
   if (config.discord_webhook_url) {
     const { data: updatedPlayers } = await supabase
       .from('slots_players')
       .select('id, display_name, slot_tokens, total_cpc_won')
       .eq('event_id', eventId);
-
+ 
     const playerMap = {};
     for (const p of updatedPlayers ?? []) playerMap[p.id] = p;
-
+ 
     sendSlotsDiscordWebhook({
       webhookUrl:    config.discord_webhook_url,
       eventTitle:    config.game_title || 'PokeNexus Slots',
@@ -268,12 +290,12 @@ export async function commitSlotsDay(eventId, dayNumber, userId) {
       playerMap,
     }).catch(err => console.warn('Discord webhook failed:', err.message));
   }
-
+ 
   return { commitId: commitRow.id, playerResults };
 }
-
+ 
 // ─── UNDO COMMIT ──────────────────────────────────────────────────────────────
-
+ 
 export async function undoSlotsCommit(eventId) {
   // 1. Get the most recent commit
   const { data: commits, error: cErr } = await supabase
@@ -284,10 +306,10 @@ export async function undoSlotsCommit(eventId) {
     .limit(1);
   if (cErr) throw cErr;
   if (!commits?.length) throw new Error('No commit to undo.');
-
+ 
   const commit = commits[0];
   const snap   = commit.pre_commit_snapshot;
-
+ 
   // 2. Restore pre-commit token balances for all players in snapshot
   for (const [playerId, balances] of Object.entries(snap)) {
     const { error: upErr } = await supabase
@@ -296,7 +318,7 @@ export async function undoSlotsCommit(eventId) {
       .eq('id', playerId);
     if (upErr) throw upErr;
   }
-
+ 
   // 3. Un-commit the entries for that day
   const { error: unmarkErr } = await supabase
     .from('slots_score_entries')
@@ -304,31 +326,31 @@ export async function undoSlotsCommit(eventId) {
     .eq('event_id', eventId)
     .eq('commit_id', commit.id);
   if (unmarkErr) throw unmarkErr;
-
+ 
   // 4. Delete the commit record
   const { error: delErr } = await supabase
     .from('slots_commits')
     .delete()
     .eq('id', commit.id);
   if (delErr) throw delErr;
-
+ 
   // 5. Audit log
   await supabase.from('slots_audit_log').insert({
     event_id: eventId,
     action:   'undo_commit',
     metadata: { day_number: commit.day_number, reverted_commit_id: commit.id },
   });
-
+ 
   return { dayNumber: commit.day_number };
 }
-
+ 
 // ─── DISCORD WEBHOOK ─────────────────────────────────────────────────────────
-
+ 
 async function sendSlotsDiscordWebhook({ webhookUrl, eventTitle, dayNumber, playerResults, playerMap }) {
   if (!webhookUrl) return;
-
+ 
   const lines = [`🎰 **${eventTitle} — Day ${dayNumber} Commit**`, ''];
-
+ 
   lines.push('📊 **Today\'s Scores**');
   playerResults.forEach((r, i) => {
     const p = playerMap[r.playerId];
@@ -338,7 +360,7 @@ async function sendSlotsDiscordWebhook({ webhookUrl, eventTitle, dayNumber, play
       `${rank}. **${r.playerName}** — ${r.rawScore.toLocaleString()} pts → ${r.tokensAwarded} 🎟️  (🪙 ${totalCpc.toLocaleString()} total CPC)`
     );
   });
-
+ 
   lines.push('');
   lines.push('💰 **Token Balances after commit**');
   const balanceParts = playerResults.map(r => {
@@ -346,7 +368,7 @@ async function sendSlotsDiscordWebhook({ webhookUrl, eventTitle, dayNumber, play
     return `${r.playerName}: ${(p?.slot_tokens ?? r.tokenBalanceAfter).toLocaleString()} 🎟️`;
   });
   lines.push(balanceParts.join(' | '));
-
+ 
   try {
     await fetch(webhookUrl, {
       method:  'POST',
@@ -357,9 +379,9 @@ async function sendSlotsDiscordWebhook({ webhookUrl, eventTitle, dayNumber, play
     console.warn('Discord webhook error:', err.message);
   }
 }
-
+ 
 // ─── PRIZE STORE ──────────────────────────────────────────────────────────────
-
+ 
 /**
  * Purchase a prize store item for a player.
  * Enforces overall quantity limit and per-player limit (max_per_player).
@@ -367,82 +389,36 @@ async function sendSlotsDiscordWebhook({ webhookUrl, eventTitle, dayNumber, play
  * decrements quantity, writes audit log.
  */
 export async function purchaseStoreItem(eventId, playerId, storeItemId, actorId) {
-  // 1. Fetch player and item
-  const [{ data: player, error: pErr }, { data: item, error: iErr }] = await Promise.all([
-    supabase.from('slots_players').select('*').eq('id', playerId).single(),
-    supabase.from('slots_store_items').select('*').eq('id', storeItemId).single(),
-  ]);
-  if (pErr) throw pErr;
-  if (iErr) throw iErr;
-  if (!player) throw new Error('Player not found.');
-  if (!item)   throw new Error('Store item not found.');
-  if (!item.is_active) throw new Error('This item is no longer available.');
-
-  // 2. Check overall quantity
-  if (item.quantity_remaining !== null && item.quantity_remaining <= 0) {
-    throw new Error('This item is sold out.');
-  }
-
-  // 3. Check per-player limit
-  if (item.max_per_player !== null) {
-    const playerCount = await getPlayerPurchaseCount(playerId, storeItemId);
-    if (playerCount >= item.max_per_player) {
-      throw new Error(`You have already purchased this item the maximum number of times (${item.max_per_player}).`);
-    }
-  }
-
-  // 4. Check CPC balance
-  if (player.casino_prize_coins < item.cost_cpc) {
-    throw new Error(`Not enough Casino Prize Coins. Need ${item.cost_cpc}, have ${player.casino_prize_coins}.`);
-  }
-
-  // 5. Deduct CPC and optionally award tokens
-  const newCpc = player.casino_prize_coins - item.cost_cpc;
-  let newTokens = player.slot_tokens;
-  if (item.pays_out_slot_tokens && item.pays_out_slot_tokens > 0) {
-    newTokens += item.pays_out_slot_tokens;
-  }
-
-  const { error: upErr } = await supabase
-    .from('slots_players')
-    .update({ casino_prize_coins: newCpc, slot_tokens: newTokens })
-    .eq('id', playerId);
-  if (upErr) throw upErr;
-
-  // 6. Decrement overall quantity if limited
-  if (item.quantity_remaining !== null) {
-    const { error: qErr } = await supabase
-      .from('slots_store_items')
-      .update({ quantity_remaining: item.quantity_remaining - 1 })
-      .eq('id', storeItemId);
-    if (qErr) throw qErr;
-  }
-
-  // 7. Insert prize board row
-  const { data: prizeRow, error: prErr } = await supabase
-    .from('slots_prize_board')
-    .insert({
-      event_id:             eventId,
-      player_id:            playerId,
-      store_item_id:        storeItemId,
-      cost_cpc_at_purchase: item.cost_cpc,
-    })
-    .select()
-    .single();
-  if (prErr) throw prErr;
-
-  // 8. Audit log
-  await supabase.from('slots_audit_log').insert({
-    event_id:  eventId,
-    actor_id:  actorId,
-    action:    'purchase',
-    player_id: playerId,
-    metadata:  { store_item_id: storeItemId, store_item_label: item.label, cost_cpc: item.cost_cpc },
+  // All validation, balance deduction, stock decrement, prize board insert, and audit
+  // logging now happen atomically in a single Postgres transaction via the
+  // purchase_store_item() RPC (see migration slots_purchase_store_item_atomic_rpc).
+  //
+  // This replaces the previous four-step client-side sequence (read player/item,
+  // update player balance, update store item stock, insert prize board row), which
+  // had two bugs in production:
+  //   1. The stock UPDATE on slots_store_items was silently blocked by RLS for
+  //      regular players (only event_runner/owner had an UPDATE policy on that
+  //      table), so quantity_remaining never actually decremented for player
+  //      purchases and items kept showing as in-stock after being sold out.
+  //   2. Even with RLS fixed, the decrement used the quantity value read at the
+  //      start of the call with no concurrency guard, so two near-simultaneous
+  //      purchases of the same item could stomp on each other's stock count.
+  //
+  // The RPC runs as SECURITY DEFINER, locks the player and item rows with
+  // `FOR UPDATE`, and re-implements the same authorization check the old RLS
+  // policy provided (caller must be the linked profile for this player, or an
+  // event_runner/owner).
+  const { data, error } = await supabase.rpc('purchase_store_item', {
+    p_event_id:      eventId,
+    p_player_id:     playerId,
+    p_store_item_id: storeItemId,
+    p_actor_id:      actorId,
   });
-
-  return { prizeRow, newCpc, newTokens };
+  if (error) throw new Error(error.message || 'Purchase failed.');
+ 
+  return { prizeRow: data.prizeRow, newCpc: data.newCpc, newTokens: data.newTokens };
 }
-
+ 
 /**
  * Mark a prize board entry as paid (or unpaid).
  */
@@ -456,7 +432,7 @@ export async function setPrizePaid(eventId, prizeBoardId, paid, actorId) {
     })
     .eq('id', prizeBoardId);
   if (error) throw error;
-
+ 
   await supabase.from('slots_audit_log').insert({
     event_id: eventId,
     actor_id: actorId,
@@ -464,21 +440,21 @@ export async function setPrizePaid(eventId, prizeBoardId, paid, actorId) {
     metadata: { prize_board_id: prizeBoardId },
   });
 }
-
+ 
 // ─── MANUAL TOKEN AWARD / DEDUCT ─────────────────────────────────────────────
-
+ 
 export async function awardTokens(eventId, playerId, amount, reason, actorId) {
   const { data: player, error: pErr } = await supabase
     .from('slots_players').select('slot_tokens').eq('id', playerId).single();
   if (pErr) throw pErr;
-
+ 
   const newBalance = Math.max(0, player.slot_tokens + amount);
   const { error: upErr } = await supabase
     .from('slots_players')
     .update({ slot_tokens: newBalance })
     .eq('id', playerId);
   if (upErr) throw upErr;
-
+ 
   await supabase.from('slots_audit_log').insert({
     event_id:  eventId,
     actor_id:  actorId,
@@ -486,24 +462,24 @@ export async function awardTokens(eventId, playerId, amount, reason, actorId) {
     player_id: playerId,
     metadata:  { amount, reason, new_balance: newBalance },
   });
-
+ 
   return newBalance;
 }
-
+ 
 // ─── MANUAL CPC AWARD / DEDUCT ───────────────────────────────────────────────
-
+ 
 export async function awardCPC(eventId, playerId, amount, reason, actorId) {
   const { data: player, error: pErr } = await supabase
     .from('slots_players').select('casino_prize_coins').eq('id', playerId).single();
   if (pErr) throw pErr;
-
+ 
   const newBalance = Math.max(0, player.casino_prize_coins + amount);
   const { error: upErr } = await supabase
     .from('slots_players')
     .update({ casino_prize_coins: newBalance })
     .eq('id', playerId);
   if (upErr) throw upErr;
-
+ 
   await supabase.from('slots_audit_log').insert({
     event_id:  eventId,
     actor_id:  actorId,
@@ -511,12 +487,12 @@ export async function awardCPC(eventId, playerId, amount, reason, actorId) {
     player_id: playerId,
     metadata:  { amount, reason, new_balance: newBalance },
   });
-
+ 
   return newBalance;
 }
-
+ 
 // ─── EVENT CREATION SEED ─────────────────────────────────────────────────────
-
+ 
 export async function seedSlotsEvent({
   eventId,
   gameTitle,
@@ -544,10 +520,10 @@ export async function seedSlotsEvent({
     symbol_images:       DEFAULT_SYMBOL_IMAGES,
   });
   if (cfgErr) throw cfgErr;
-
+ 
   const { error: seedErr } = await supabase.rpc('seed_slots_payout_table', { p_event_id: eventId });
   if (seedErr) throw seedErr;
-
+ 
   if (categories.length > 0) {
     const rows = categories
       .filter(c => c.label?.trim())
@@ -563,3 +539,5 @@ export async function seedSlotsEvent({
     }
   }
 }
+ 
+
