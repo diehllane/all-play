@@ -13,6 +13,7 @@ export default function ScoreEntryPage() {
   const { id: eventId } = useParams();
   const { profile } = useAuth();
   const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
+  const canCommit = canManage || profile?.role === 'scorer';
 
   const [event, setEvent] = useState(null);
   const [divisions, setDivisions] = useState([]);
@@ -158,7 +159,7 @@ export default function ScoreEntryPage() {
   }
 
   async function commitDay() {
-    if (!canManage) return;
+    if (!canCommit) return;
     setCommitting(true);
     setMsg('');
     try {
@@ -265,14 +266,16 @@ export default function ScoreEntryPage() {
           <h1 style={styles.title}>{event?.name}</h1>
           <div style={styles.dayBadge}>Day {dayNumber}</div>
         </div>
-        {canManage && (
+        {canCommit && (
           <div style={styles.headerActions}>
             <button onClick={commitDay} disabled={committing || entries.length === 0} style={styles.commitBtn}>
               {committing ? 'Committing...' : `Commit Day ${dayNumber}`}
             </button>
-            <button onClick={undoDay} disabled={committing || dayNumber <= 1} style={styles.undoBtn}>
-              Undo Last Day
-            </button>
+            {canManage && (
+              <button onClick={undoDay} disabled={committing || dayNumber <= 1} style={styles.undoBtn}>
+                Undo Last Day
+              </button>
+            )}
           </div>
         )}
       </div>
