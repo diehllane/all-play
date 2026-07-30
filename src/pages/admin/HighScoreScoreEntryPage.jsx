@@ -18,6 +18,7 @@ export default function HighScoreScoreEntryPage() {
   const { id: eventId } = useParams();
   const { profile } = useAuth();
   const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
+  const canCommit = canManage || profile?.role === 'scorer';
 
   const [event, setEvent] = useState(null);
   const [config, setConfig] = useState(null);
@@ -135,7 +136,7 @@ export default function HighScoreScoreEntryPage() {
   }
 
   async function handleCommit() {
-    if (!canManage) return;
+    if (!canCommit) return;
     if (!confirm(`Commit Day ${dayNumber} for all players?`)) return;
     setCommitting(true);
     setMsg('');
@@ -235,7 +236,7 @@ export default function HighScoreScoreEntryPage() {
           <h1 style={s.title}>{event?.name}</h1>
           <span style={s.dayBadge}>Day {dayNumber}</span>
         </div>
-        {canManage && (
+        {canCommit && (
           <div style={s.headerActions}>
             <button
               onClick={handleCommit}
@@ -244,13 +245,15 @@ export default function HighScoreScoreEntryPage() {
             >
               {committing ? 'Committing...' : `Commit Day ${dayNumber}`}
             </button>
-            <button
-              onClick={handleUndo}
-              disabled={committing || dayNumber <= 1}
-              style={s.undoBtn}
-            >
-              Undo Last Day
-            </button>
+            {canManage && (
+              <button
+                onClick={handleUndo}
+                disabled={committing || dayNumber <= 1}
+                style={s.undoBtn}
+              >
+                Undo Last Day
+              </button>
+            )}
           </div>
         )}
       </div>
