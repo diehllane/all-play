@@ -9,6 +9,7 @@ export default function BingoScoreEntryPage() {
   const navigate = useNavigate();
   const { profile } = useAuth();
   const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
+  const canCommit = canManage || profile?.role === 'scorer';
 
   const [config, setConfig] = useState(null);
   const [squares, setSquares] = useState([]);
@@ -244,16 +245,18 @@ export default function BingoScoreEntryPage() {
         )}
 
         {/* Commit / Undo */}
-        {canManage && (
+        {canCommit && (
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <button onClick={handleCommit} disabled={committing || entries.length === 0}
               style={{ background: entries.length > 0 ? themeColor : 'var(--border)', color: 'var(--text)', border: 'none', borderRadius: 8, padding: '12px 28px', fontSize: 15, fontWeight: 700, cursor: entries.length > 0 ? 'pointer' : 'not-allowed' }}>
               {committing ? 'Committing...' : `Commit Day ${dayNumber}`}
             </button>
-            <button onClick={handleUndo} disabled={undoing}
-              style={{ background: 'none', border: '1px solid #ef4444', color: '#ef4444', borderRadius: 8, padding: '12px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-              {undoing ? 'Undoing...' : 'Undo Last Commit'}
-            </button>
+            {canManage && (
+              <button onClick={handleUndo} disabled={undoing}
+                style={{ background: 'none', border: '1px solid #ef4444', color: '#ef4444', borderRadius: 8, padding: '12px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                {undoing ? 'Undoing...' : 'Undo Last Commit'}
+              </button>
+            )}
           </div>
         )}
       </div>
