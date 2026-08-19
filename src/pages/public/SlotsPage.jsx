@@ -126,7 +126,9 @@ export default function SlotsPage() {
   const [prizeBoard, setPrizeBoard] = useState([]);
   const [payoutTable, setPayoutTable] = useState([]);
   const [recentSpins, setRecentSpins] = useState([]);
+  const [spinsCollapsed, setSpinsCollapsed] = useState(true);
   const [bestSpins, setBestSpins] = useState({});
+  const [commits, setCommits] = useState([]);
   // Per-player purchase counts for store items — keyed by store_item_id
   const [myPurchaseCounts, setMyPurchaseCounts] = useState({});
   const [loading, setLoading] = useState(true);
@@ -149,13 +151,14 @@ export default function SlotsPage() {
 
   const loadAll = useCallback(async () => {
     try {
-      const [evRes, cfgRes, playersRes, storeRes, prizesRes, payoutRes] = await Promise.all([
+      const [evRes, cfgRes, playersRes, storeRes, prizesRes, payoutRes, commitsRes] = await Promise.all([
         supabase.from('events').select('*').eq('id', eventId).single(),
         supabase.from('slots_config').select('*').eq('event_id', eventId).single(),
         supabase.from('slots_players').select('*').eq('event_id', eventId).order('total_cpc_won', { ascending: false }),
         supabase.from('slots_store_items').select('*').eq('event_id', eventId).eq('is_active', true).order('cost_cpc'),
-        supabase.from('slots_prize_board').select(`*, slots_players(display_name), slots_store_items(label)`).eq('event_id', eventId).order('purchased_at', { ascending: false }),
+        supabase.from('slots_prize_board').select(`*, slots_players(display_name), slots_store_items(label, show_on_prize_board)`).eq('event_id', eventId).order('purchased_at', { ascending: false }),
         supabase.from('slots_payout_table').select('*').eq('event_id', eventId).order('payout_cpc', { ascending: false }),
+        supabase.from('slots_commits').select('day_number, committed_at, player_results').eq('event_id', eventId).order('day_number'),
       ]);
       if (evRes.error) throw evRes.error;
       setEvent(evRes.data);
@@ -165,6 +168,7 @@ export default function SlotsPage() {
       setStoreItems(storeRes.data || []);
       setPrizeBoard(prizesRes.data || []);
       setPayoutTable(payoutRes.data || []);
+      setCommits(commitsRes.data || []);
 
       if (playerList.length > 0) {
         const playerIds = playerList.map(p => p.id);
@@ -262,6 +266,15 @@ export default function SlotsPage() {
       });
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'Spin failed');
+
+      // Post to Recent Spins immediately — don't make players wait for the reel
+      // animation to finish before the result shows up in the list. The next
+      // loadRecentSpins() (after the animation) reconciles this with the
+      // authoritative DB row.
+      setRecentSpins(prev => [
+        { id: `pending-${Date.now()}`, reels: result.reels, payout_cpc: result.payout_cpc, spun_at: new Date().toISOString() },
+        ...prev,
+      ].slice(0, 10));
 
       await new Promise(r => setTimeout(r, 400));
       setReels(result.reels);
@@ -371,7 +384,7 @@ export default function SlotsPage() {
       </div>
 
       <div style={styles.tabBar}>
-        {[['machine','Slots'],['store','Store'],['board','Prize Board'],['leaderboard','Leaderboard'],['paytable','Pay Table']].map(([id,label]) => (
+        {[['machine','Slots'],['store','Store'],['board','Prize Board'],['leaderboard','Leaderboard'],['history','Daily History'],['paytable','Pay Table']].map(([id,label]) => (
           <button key={id} onClick={() => setActiveTab(id)}
             style={{ ...styles.tab, ...(activeTab===id ? { borderBottomColor: theme, color: '#fff' } : {}) }}>
             {label}
@@ -441,9 +454,14 @@ export default function SlotsPage() {
 
             {user && myPlayer && recentSpins.length > 0 && (
               <div style={styles.recentWrap}>
-                <div style={{ ...styles.sectionTitle, color: theme }}>My Recent Spins</div>
-                {recentSpins.map((spin, i) => (
-                  <div key={i} style={styles.spinRow}>
+                <div
+                  onClick={() => setSpinsCollapsed(c => !c)}
+                  style={{ ...styles.sectionTitle, color: theme, display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', userSelect: 'none' }}>
+                  <span>My Recent Spins {spinsCollapsed && <span style={{ color: '#666', fontWeight: 400, fontSize: 12 }}>({recentSpins.length})</span>}</span>
+                  <span style={{ color: '#666', fontSize: 12 }}>{spinsCollapsed ? '▾ Show' : '▴ Hide'}</span>
+                </div>
+                {!spinsCollapsed && recentSpins.map((spin, i) => (
+                  <div key={spin.id ?? i} style={styles.spinRow}>
                     <div style={styles.spinReels}>
                       {spin.reels?.map((s, j) => (
                         <span key={j} style={{ display: 'inline-flex', alignItems: 'center' }}>
@@ -543,27 +561,32 @@ export default function SlotsPage() {
           </div>
         )}
 
-        {activeTab === 'board' && (
-          <div style={styles.panelWrap}>
-            <div style={styles.panelHeader}><span style={{ ...styles.sectionTitle, color: theme }}>Prize Board</span></div>
-            {prizeBoard.length === 0 && <div style={styles.empty}>No prizes claimed yet.</div>}
-            <table style={styles.table}>
-              <thead><tr>{['Player','Prize','Cost','Date','Status', canManage && 'Mark'].filter(Boolean).map(h => <th key={h} style={styles.th}>{h}</th>)}</tr></thead>
-              <tbody>
-                {prizeBoard.map(entry => (
-                  <tr key={entry.id} style={{ opacity: entry.paid ? 0.5 : 1 }}>
-                    <td style={styles.td}>{entry.slots_players?.display_name || '--'}</td>
-                    <td style={styles.td}>{entry.slots_store_items?.label || '--'}</td>
-                    <td style={styles.td}>{entry.cost_cpc_at_purchase} CPC</td>
-                    <td style={styles.td}>{new Date(entry.purchased_at).toLocaleDateString()}</td>
-                    <td style={styles.td}><span style={{ color: entry.paid ? '#4CAF50' : '#888', fontSize: 12 }}>{entry.paid ? 'Fulfilled' : 'Pending'}</span></td>
-                    {canManage && <td style={styles.td}><button onClick={() => handleMarkPaid(entry, !entry.paid)} style={{ ...styles.smallBtn, background: entry.paid ? '#555' : '#4CAF50' }}>{entry.paid ? 'Unmark' : 'Fulfill'}</button></td>}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        {activeTab === 'board' && (() => {
+          // Token top-up items can opt out of the public board via show_on_prize_board
+          // so pure spin refills don't clutter the redemption list.
+          const boardEntries = prizeBoard.filter(entry => entry.slots_store_items?.show_on_prize_board !== false);
+          return (
+            <div style={styles.panelWrap}>
+              <div style={styles.panelHeader}><span style={{ ...styles.sectionTitle, color: theme }}>Prize Board</span></div>
+              {boardEntries.length === 0 && <div style={styles.empty}>No prizes claimed yet.</div>}
+              <table style={styles.table}>
+                <thead><tr>{['Player','Prize','Cost','Date','Status', canManage && 'Mark'].filter(Boolean).map(h => <th key={h} style={styles.th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {boardEntries.map(entry => (
+                    <tr key={entry.id} style={{ opacity: entry.paid ? 0.5 : 1 }}>
+                      <td style={styles.td}>{entry.slots_players?.display_name || '--'}</td>
+                      <td style={styles.td}>{entry.slots_store_items?.label || '--'}</td>
+                      <td style={styles.td}>{entry.cost_cpc_at_purchase} CPC</td>
+                      <td style={styles.td}>{new Date(entry.purchased_at).toLocaleDateString()}</td>
+                      <td style={styles.td}><span style={{ color: entry.paid ? '#4CAF50' : '#888', fontSize: 12 }}>{entry.paid ? 'Fulfilled' : 'Pending'}</span></td>
+                      {canManage && <td style={styles.td}><button onClick={() => handleMarkPaid(entry, !entry.paid)} style={{ ...styles.smallBtn, background: entry.paid ? '#555' : '#4CAF50' }}>{entry.paid ? 'Unmark' : 'Fulfill'}</button></td>}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
 
         {activeTab === 'leaderboard' && (
           <div style={styles.panelWrap}>
@@ -621,6 +644,66 @@ export default function SlotsPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {activeTab === 'history' && (
+          <div style={styles.panelWrap}>
+            <div style={styles.panelHeader}><span style={{ ...styles.sectionTitle, color: theme }}>Daily History</span></div>
+            {commits.length === 0 && <div style={styles.empty}>No days committed yet.</div>}
+            {commits.length > 0 && (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>Day</th>
+                      {players.map(p => <th key={p.id} style={{ ...styles.th, textAlign: 'right' }}>{p.display_name}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {commits.map(c => {
+                      const byPlayer = {};
+                      for (const r of (c.player_results || [])) byPlayer[r.playerId] = r;
+                      return (
+                        <tr key={c.day_number}>
+                          <td style={styles.td}>
+                            Day {c.day_number}
+                            <div style={{ fontSize: 10, opacity: 0.4 }}>{new Date(c.committed_at).toLocaleDateString()}</div>
+                          </td>
+                          {players.map(p => {
+                            const r = byPlayer[p.id];
+                            return (
+                              <td key={p.id} style={styles.tdNum}>
+                                {r ? (
+                                  <>
+                                    <span style={{ color: '#ffd700', fontWeight: 600 }}>{r.tokensAwarded}</span>
+                                    <span style={{ fontSize: 10, opacity: 0.4 }}> T</span>
+                                    <div style={{ fontSize: 10, opacity: 0.4 }}>{r.rawScore.toLocaleString()} pts</div>
+                                  </>
+                                ) : <span style={{ color: '#444' }}>--</span>}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                    <tr style={{ borderTop: '2px solid #333' }}>
+                      <td style={{ ...styles.td, fontWeight: 700 }}>Total</td>
+                      {players.map(p => {
+                        const total = commits.reduce((sum, c) => {
+                          const r = (c.player_results || []).find(r => r.playerId === p.id);
+                          return sum + (r?.tokensAwarded || 0);
+                        }, 0);
+                        return <td key={p.id} style={{ ...styles.tdNum, fontWeight: 700, color: '#ffd700' }}>{total.toLocaleString()} T</td>;
+                      })}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div style={{ padding: '12px 0', fontSize: 11, opacity: 0.4 }}>
+              Tokens awarded per commit day. Raw score shown underneath is the day's tally before the divisor/rounding in Configuration was applied.
+            </div>
           </div>
         )}
 
