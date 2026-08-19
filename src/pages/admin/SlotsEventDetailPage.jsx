@@ -48,7 +48,7 @@ export default function SlotsEventDetailPage() {
         supabase.from('slots_categories').select('*').eq('event_id', eventId).order('sort_order'),
         supabase.from('slots_commits').select('*').eq('event_id', eventId).order('day_number', { ascending: false }),
         supabase.from('slots_store_items').select('*').eq('event_id', eventId).order('cost_cpc'),
-        supabase.from('slots_prize_board').select(`*, slots_players(display_name), slots_store_items(label)`).eq('event_id', eventId).order('purchased_at', { ascending: false }),
+        supabase.from('slots_prize_board').select(`*, slots_players(display_name), slots_store_items(label, show_on_prize_board)`).eq('event_id', eventId).order('purchased_at', { ascending: false }),
         supabase.from('slots_audit_log').select('*, profiles(email)').eq('event_id', eventId).order('created_at', { ascending: false }).limit(50),
       ]);
       if (evRes.error) throw evRes.error;
@@ -359,39 +359,52 @@ export default function SlotsEventDetailPage() {
             <table style={s.table}>
               <thead>
                 <tr>
-                  {['Item','Cost (CPC)','Total Qty Left','Max / Player','Pays Tokens','Status',''].map(h => (
+                  {['Item','Cost (CPC)','Total Qty Left','Max / Player','Pays Tokens','CPC:Token','On Board','Status',''].map(h => (
                     <th key={h} style={s.th}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {storeItems.map(item => (
-                  <tr key={item.id} style={{ opacity: item.is_active ? 1 : 0.4 }}>
-                    <td style={s.td}>
-                      <div style={{ fontWeight: 600 }}>{item.label}</div>
-                      {item.description && <div style={{ fontSize: 11, opacity: 0.5 }}>{item.description}</div>}
-                    </td>
-                    <td style={s.tdNum}>C {item.cost_cpc}</td>
-                    <td style={s.tdNum}>{item.quantity_remaining === null ? '∞' : item.quantity_remaining}</td>
-                    <td style={{ ...s.tdNum, color: item.max_per_player ? '#90CAF9' : '#555' }}>
-                      {item.max_per_player ?? '∞'}
-                    </td>
-                    <td style={s.tdNum}>{item.pays_out_slot_tokens ? `T ${item.pays_out_slot_tokens}` : '--'}</td>
-                    <td style={s.td}><span style={{ color: item.is_active ? '#4CAF50' : '#888', fontSize: 12 }}>{item.is_active ? 'Active' : 'Inactive'}</span></td>
-                    <td style={s.td}><button onClick={() => toggleStoreItem(item)} style={{ ...s.smallBtn, background: '#555' }}>{item.is_active ? 'Hide' : 'Show'}</button></td>
-                  </tr>
-                ))}
-                {storeItems.length === 0 && <tr><td colSpan={7} style={{ ...s.td, textAlign: 'center', color: '#555', padding: '32px 0' }}>No store items yet.</td></tr>}
+                {storeItems.map(item => {
+                  const ratio = item.pays_out_slot_tokens ? (item.cost_cpc / item.pays_out_slot_tokens) : null;
+                  return (
+                    <tr key={item.id} style={{ opacity: item.is_active ? 1 : 0.4 }}>
+                      <td style={s.td}>
+                        <div style={{ fontWeight: 600 }}>{item.label}</div>
+                        {item.description && <div style={{ fontSize: 11, opacity: 0.5 }}>{item.description}</div>}
+                      </td>
+                      <td style={s.tdNum}>C {item.cost_cpc}</td>
+                      <td style={s.tdNum}>{item.quantity_remaining === null ? '∞' : item.quantity_remaining}</td>
+                      <td style={{ ...s.tdNum, color: item.max_per_player ? '#90CAF9' : '#555' }}>
+                        {item.max_per_player ?? '∞'}
+                      </td>
+                      <td style={s.tdNum}>{item.pays_out_slot_tokens ? `T ${item.pays_out_slot_tokens}` : '--'}</td>
+                      <td style={{ ...s.tdNum, color: ratio !== null ? '#888' : '#444' }}>{ratio !== null ? ratio.toFixed(1) : '--'}</td>
+                      <td style={s.td}>
+                        <span title={item.show_on_prize_board !== false ? 'Shown on Prize Board' : 'Hidden from Prize Board'}>
+                          {item.show_on_prize_board !== false ? '👁️' : '🚫'}
+                        </span>
+                      </td>
+                      <td style={s.td}><span style={{ color: item.is_active ? '#4CAF50' : '#888', fontSize: 12 }}>{item.is_active ? 'Active' : 'Inactive'}</span></td>
+                      <td style={s.td}><button onClick={() => toggleStoreItem(item)} style={{ ...s.smallBtn, background: '#555' }}>{item.is_active ? 'Hide' : 'Show'}</button></td>
+                    </tr>
+                  );
+                })}
+                {storeItems.length === 0 && <tr><td colSpan={9} style={{ ...s.td, textAlign: 'center', color: '#555', padding: '32px 0' }}>No store items yet.</td></tr>}
               </tbody>
             </table>
+            <div style={{ fontSize: 11, opacity: 0.4, marginTop: 8 }}>CPC:Token and the "Show on Prize Board" flag are edited on the <Link to={`/admin/slots/${eventId}/edit`} style={{ color: theme }}>Edit Config</Link> page.</div>
           </div>
         )}
 
         {/* ── Prizes ── */}
         {activeTab === 'prizes' && (
           <div>
+            <p style={{ opacity: 0.6, fontSize: 13, marginBottom: 16 }}>
+              This admin list shows every redemption, including token top-ups hidden from the public Prize Board.
+            </p>
             <table style={s.table}>
-              <thead><tr>{['Player','Prize','Cost','Date','Status',''].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
+              <thead><tr>{['Player','Prize','Cost','Date','Board','Status',''].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
               <tbody>
                 {prizeBoard.map(entry => (
                   <tr key={entry.id} style={{ opacity: entry.paid ? 0.5 : 1 }}>
@@ -399,11 +412,16 @@ export default function SlotsEventDetailPage() {
                     <td style={s.td}>{entry.slots_store_items?.label}</td>
                     <td style={s.tdNum}>C {entry.cost_cpc_at_purchase}</td>
                     <td style={s.td}>{new Date(entry.purchased_at).toLocaleDateString()}</td>
+                    <td style={s.td}>
+                      {entry.slots_store_items?.show_on_prize_board !== false
+                        ? <span style={{ fontSize: 11, color: '#4CAF50' }}>Shown</span>
+                        : <span style={{ fontSize: 11, color: '#888' }}>Hidden</span>}
+                    </td>
                     <td style={s.td}><span style={{ color: entry.paid ? '#4CAF50' : '#f90', fontSize: 12 }}>{entry.paid ? 'Fulfilled' : 'Pending'}</span></td>
                     <td style={s.td}><button onClick={() => markPrizePaid(entry, !entry.paid)} style={{ ...s.smallBtn, background: entry.paid ? '#555' : '#4CAF50' }}>{entry.paid ? 'Unmark' : 'Fulfill'}</button></td>
                   </tr>
                 ))}
-                {prizeBoard.length === 0 && <tr><td colSpan={6} style={{ ...s.td, textAlign: 'center', color: '#555', padding: '32px 0' }}>No prizes claimed yet.</td></tr>}
+                {prizeBoard.length === 0 && <tr><td colSpan={7} style={{ ...s.td, textAlign: 'center', color: '#555', padding: '32px 0' }}>No prizes claimed yet.</td></tr>}
               </tbody>
             </table>
           </div>

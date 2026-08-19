@@ -135,8 +135,12 @@ export default function SlotsEditPage() {
   const [newItemQty, setNewItemQty] = useState('');
   const [newItemMaxPerPlayer, setNewItemMaxPerPlayer] = useState('');
   const [newItemTokens, setNewItemTokens] = useState('');
+  const [newItemShowOnBoard, setNewItemShowOnBoard] = useState(true);
   const [selectedProfileId, setSelectedProfileId] = useState('');
   const [newPlayerColor, setNewPlayerColor] = useState('#c62828');
+
+  const [editingItemId, setEditingItemId] = useState(null);
+  const [editDraft, setEditDraft] = useState({});
 
   const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
 
@@ -326,6 +330,7 @@ export default function SlotsEditPage() {
       quantity_remaining: newItemQty ? parseInt(newItemQty) : null,
       max_per_player: newItemMaxPerPlayer ? parseInt(newItemMaxPerPlayer) : null,
       pays_out_slot_tokens: newItemTokens ? parseInt(newItemTokens) : null,
+      show_on_prize_board: newItemShowOnBoard,
       is_active: true,
     };
     try {
@@ -337,13 +342,59 @@ export default function SlotsEditPage() {
         } else { flash('Error: ' + e.message); return; }
       }
     } catch (err) { flash('Error: ' + err.message); return; }
-    setNewItemLabel(''); setNewItemCost(''); setNewItemQty(''); setNewItemMaxPerPlayer(''); setNewItemTokens('');
+    setNewItemLabel(''); setNewItemCost(''); setNewItemQty(''); setNewItemMaxPerPlayer(''); setNewItemTokens(''); setNewItemShowOnBoard(true);
     await loadAll();
   };
 
   const removeStoreItem = async (id, label) => {
     if (!confirm(`Remove "${label}" from the store?`)) return;
     await supabase.from('slots_store_items').delete().eq('id', id);
+    await loadAll();
+  };
+
+  const startEditItem = (item) => {
+    setEditingItemId(item.id);
+    setEditDraft({
+      label: item.label,
+      cost_cpc: String(item.cost_cpc ?? 0),
+      quantity: item.quantity === null ? '' : String(item.quantity),
+      max_per_player: item.max_per_player === null ? '' : String(item.max_per_player),
+      pays_out_slot_tokens: item.pays_out_slot_tokens === null ? '' : String(item.pays_out_slot_tokens),
+      show_on_prize_board: item.show_on_prize_board !== false,
+    });
+  };
+
+  const cancelEditItem = () => { setEditingItemId(null); setEditDraft({}); };
+
+  // Editing "Total Qty" must not clobber units already sold. We back into the
+  // sold count from the item's current quantity/quantity_remaining and carry
+  // it forward onto the new total, rather than just overwriting remaining.
+  const saveEditItem = async (item) => {
+    const label = editDraft.label?.trim();
+    if (!label) { flash('Error: label cannot be blank'); return; }
+    const newQty = editDraft.quantity === '' ? null : parseInt(editDraft.quantity) || 0;
+
+    let newQuantityRemaining;
+    if (newQty === null) {
+      newQuantityRemaining = null;
+    } else if (item.quantity === null) {
+      newQuantityRemaining = newQty;
+    } else {
+      const sold = item.quantity - (item.quantity_remaining ?? item.quantity);
+      newQuantityRemaining = Math.max(0, newQty - sold);
+    }
+
+    const { error: e } = await supabase.from('slots_store_items').update({
+      label,
+      cost_cpc: parseInt(editDraft.cost_cpc) || 0,
+      quantity: newQty,
+      quantity_remaining: newQuantityRemaining,
+      max_per_player: editDraft.max_per_player === '' ? null : parseInt(editDraft.max_per_player) || 0,
+      pays_out_slot_tokens: editDraft.pays_out_slot_tokens === '' ? null : parseInt(editDraft.pays_out_slot_tokens) || 0,
+      show_on_prize_board: editDraft.show_on_prize_board,
+    }).eq('id', item.id);
+    if (e) { flash('Error: ' + e.message); return; }
+    cancelEditItem();
     await loadAll();
   };
 
@@ -356,11 +407,14 @@ export default function SlotsEditPage() {
       const qty = row['quantity'] ? parseInt(row['quantity']) : null;
       const maxPP = row['max_per_player'] ? parseInt(row['max_per_player']) : null;
       const paysOut = row['pays_out_slot_tokens'] ? parseInt(row['pays_out_slot_tokens']) : null;
+      const showOnBoard = row['show_on_prize_board'] === undefined || row['show_on_prize_board'] === ''
+        ? true
+        : ['true', '1', 'yes'].includes(String(row['show_on_prize_board']).trim().toLowerCase());
       const existing = storeItems.find(s => s.label?.toLowerCase() === label.toLowerCase());
       if (existing) {
-        await supabase.from('slots_store_items').update({ cost_cpc: cost, quantity: qty, max_per_player: maxPP, pays_out_slot_tokens: paysOut }).eq('id', existing.id);
+        await supabase.from('slots_store_items').update({ cost_cpc: cost, quantity: qty, max_per_player: maxPP, pays_out_slot_tokens: paysOut, show_on_prize_board: showOnBoard }).eq('id', existing.id);
       } else {
-        await supabase.from('slots_store_items').insert({ event_id: eventId, label, cost_cpc: cost, quantity: qty, quantity_remaining: qty, max_per_player: maxPP, pays_out_slot_tokens: paysOut, is_active: true });
+        await supabase.from('slots_store_items').insert({ event_id: eventId, label, cost_cpc: cost, quantity: qty, quantity_remaining: qty, max_per_player: maxPP, pays_out_slot_tokens: paysOut, show_on_prize_board: showOnBoard, is_active: true });
       }
       imported++;
     }
@@ -371,11 +425,12 @@ export default function SlotsEditPage() {
 
   const exportStoreItems = () => {
     downloadCSV(`slots_store_items_${eventId}.csv`,
-      ['label', 'cost_cpc', 'quantity', 'max_per_player', 'pays_out_slot_tokens', 'sort_order'],
+      ['label', 'cost_cpc', 'quantity', 'max_per_player', 'pays_out_slot_tokens', 'show_on_prize_board', 'sort_order'],
       storeItems.map((s, i) => ({
         label: s.label, cost_cpc: s.cost_cpc, quantity: s.quantity ?? '',
         max_per_player: s.max_per_player ?? '',
         pays_out_slot_tokens: s.pays_out_slot_tokens ?? '',
+        show_on_prize_board: s.show_on_prize_board !== false,
         sort_order: s.sort_order ?? i,
       })));
   };
@@ -645,8 +700,8 @@ export default function SlotsEditPage() {
               <span style={{ fontSize: 13, opacity: 0.6 }}>{storeItems.length} items</span>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <CsvImporter label="slots_store_items" themeColor={theme}
-                  sampleHeaders={['label', 'cost_cpc', 'quantity', 'max_per_player', 'pays_out_slot_tokens', 'sort_order']}
-                  sampleRow={{ label: 'Masterball', cost_cpc: 500, quantity: 1, max_per_player: '', pays_out_slot_tokens: '', sort_order: 0 }}
+                  sampleHeaders={['label', 'cost_cpc', 'quantity', 'max_per_player', 'pays_out_slot_tokens', 'show_on_prize_board', 'sort_order']}
+                  sampleRow={{ label: 'Masterball', cost_cpc: 500, quantity: 1, max_per_player: '', pays_out_slot_tokens: '', show_on_prize_board: true, sort_order: 0 }}
                   onImport={importStoreItems} />
                 <button onClick={exportStoreItems}
                   style={{ background: 'none', border: '1px solid #333', color: '#666', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>
@@ -667,16 +722,21 @@ export default function SlotsEditPage() {
                   placeholder="Max per player (∞ if blank)" style={{ ...styles.input, width: 180 }} />
                 <input type="number" value={newItemTokens} onChange={e => setNewItemTokens(e.target.value)}
                   placeholder="Pays tokens (opt)" style={{ ...styles.input, width: 140 }} />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#aaa' }}>
+                  <input type="checkbox" checked={newItemShowOnBoard} onChange={e => setNewItemShowOnBoard(e.target.checked)} />
+                  Show on Prize Board
+                </label>
                 <button onClick={addStoreItem} disabled={!newItemLabel.trim() || !newItemCost}
                   style={{ ...styles.saveBtn, padding: '8px 18px', marginTop: 0, opacity: (newItemLabel.trim() && newItemCost) ? 1 : 0.5, background: theme }}>
                   + Add
                 </button>
               </div>
               <div style={{ fontSize: 11, color: '#555' }}>
-                Total qty = overall stock cap (blank = unlimited). Max per player = how many times one player can buy this item (blank = unlimited). Pays tokens = token bundle items that award Slot Tokens on purchase.
+                Total qty = overall stock cap (blank = unlimited). Max per player = how many times one player can buy this item (blank = unlimited). Pays tokens = token bundle items that award Slot Tokens on purchase. Uncheck "Show on Prize Board" for pure token top-ups so they don't clutter the public fulfillment board.
               </div>
             </div>
             {storeItems.length === 0 && <div style={{ color: '#555', fontSize: 13, padding: '16px 0' }}>No store items yet.</div>}
+            <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               {storeItems.length > 0 && (
                 <thead>
@@ -686,38 +746,106 @@ export default function SlotsEditPage() {
                     <th style={{ padding: '8px 12px', textAlign: 'right', color: '#666', fontWeight: 600 }}>Total Qty</th>
                     <th style={{ padding: '8px 12px', textAlign: 'right', color: '#666', fontWeight: 600 }}>Max / Player</th>
                     <th style={{ padding: '8px 12px', textAlign: 'center', color: '#666', fontWeight: 600 }}>Pays Tokens</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'right', color: '#666', fontWeight: 600 }} title="CPC cost ÷ tokens paid out — how many CPC each token effectively costs on this item, vs. the configured CPC per Token rate">CPC:Token</th>
+                    <th style={{ padding: '8px 12px', textAlign: 'center', color: '#666', fontWeight: 600 }}>On Board</th>
                     <th style={{ padding: '8px 12px', textAlign: 'center', color: '#666', fontWeight: 600 }}>Status</th>
                     <th style={{ padding: '8px 12px' }}></th>
                   </tr>
                 </thead>
               )}
               <tbody>
-                {storeItems.map(s => (
-                  <tr key={s.id} style={{ borderBottom: '1px solid #1a1a1a', opacity: s.is_active ? 1 : 0.45 }}>
-                    <td style={{ padding: '8px 12px', color: '#ddd' }}>{s.label}</td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', color: '#ffd700' }}>{s.cost_cpc}</td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', color: '#ddd' }}>{s.quantity ?? '∞'}</td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', color: s.max_per_player ? '#90CAF9' : '#555' }}>
-                      {s.max_per_player ?? '∞'}
-                    </td>
-                    <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                      <span style={{ color: s.pays_out_slot_tokens ? '#4ade80' : '#555' }}>
-                        {s.pays_out_slot_tokens ? `🎟️ ${s.pays_out_slot_tokens}` : '—'}
-                      </span>
-                    </td>
-                    <td style={{ padding: '8px 12px', textAlign: 'center' }}>
-                      <span style={{ fontSize: 11, color: s.is_active ? '#4ade80' : '#555' }}>{s.is_active ? 'Active' : 'Inactive'}</span>
-                    </td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                      <button onClick={() => removeStoreItem(s.id, s.label)}
-                        style={{ background: 'none', border: '1px solid #4a1010', color: '#ef5350', borderRadius: 5, padding: '3px 10px', fontSize: 12, cursor: 'pointer' }}>
-                        Remove
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {storeItems.map(s => {
+                  const isEditing = editingItemId === s.id;
+                  const ratio = s.pays_out_slot_tokens ? (s.cost_cpc / s.pays_out_slot_tokens) : null;
+                  const configRatio = Number(form.cpc_per_token) || 5;
+
+                  if (isEditing) {
+                    return (
+                      <tr key={s.id} style={{ borderBottom: '1px solid #1a1a1a', background: '#0d0d14' }}>
+                        <td style={{ padding: '6px 12px' }}>
+                          <input value={editDraft.label} onChange={e => setEditDraft(d => ({ ...d, label: e.target.value }))}
+                            style={{ ...styles.input, width: 140 }} />
+                        </td>
+                        <td style={{ padding: '6px 12px' }}>
+                          <input type="number" value={editDraft.cost_cpc} onChange={e => setEditDraft(d => ({ ...d, cost_cpc: e.target.value }))}
+                            style={{ ...styles.input, width: 90, textAlign: 'right' }} />
+                        </td>
+                        <td style={{ padding: '6px 12px' }}>
+                          <input type="number" value={editDraft.quantity} placeholder="∞" onChange={e => setEditDraft(d => ({ ...d, quantity: e.target.value }))}
+                            style={{ ...styles.input, width: 90, textAlign: 'right' }} />
+                        </td>
+                        <td style={{ padding: '6px 12px' }}>
+                          <input type="number" value={editDraft.max_per_player} placeholder="∞" onChange={e => setEditDraft(d => ({ ...d, max_per_player: e.target.value }))}
+                            style={{ ...styles.input, width: 90, textAlign: 'right' }} />
+                        </td>
+                        <td style={{ padding: '6px 12px' }}>
+                          <input type="number" value={editDraft.pays_out_slot_tokens} placeholder="—" onChange={e => setEditDraft(d => ({ ...d, pays_out_slot_tokens: e.target.value }))}
+                            style={{ ...styles.input, width: 90, textAlign: 'right' }} />
+                        </td>
+                        <td style={{ padding: '6px 12px', textAlign: 'right', color: '#555', fontSize: 11 }}>—</td>
+                        <td style={{ padding: '6px 12px', textAlign: 'center' }}>
+                          <input type="checkbox" checked={editDraft.show_on_prize_board} onChange={e => setEditDraft(d => ({ ...d, show_on_prize_board: e.target.checked }))} />
+                        </td>
+                        <td style={{ padding: '6px 12px', textAlign: 'center', color: '#555', fontSize: 11 }}>{s.is_active ? 'Active' : 'Inactive'}</td>
+                        <td style={{ padding: '6px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                          <button onClick={() => saveEditItem(s)}
+                            style={{ background: theme, border: 'none', color: '#fff', borderRadius: 5, padding: '3px 10px', fontSize: 12, cursor: 'pointer', marginRight: 6 }}>
+                            Save
+                          </button>
+                          <button onClick={cancelEditItem}
+                            style={{ background: 'none', border: '1px solid #444', color: '#aaa', borderRadius: 5, padding: '3px 10px', fontSize: 12, cursor: 'pointer' }}>
+                            Cancel
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return (
+                    <tr key={s.id} style={{ borderBottom: '1px solid #1a1a1a', opacity: s.is_active ? 1 : 0.45 }}>
+                      <td style={{ padding: '8px 12px', color: '#ddd' }}>{s.label}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', color: '#ffd700' }}>{s.cost_cpc}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', color: '#ddd' }}>{s.quantity ?? '∞'}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', color: s.max_per_player ? '#90CAF9' : '#555' }}>
+                        {s.max_per_player ?? '∞'}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                        <span style={{ color: s.pays_out_slot_tokens ? '#4ade80' : '#555' }}>
+                          {s.pays_out_slot_tokens ? `🎟️ ${s.pays_out_slot_tokens}` : '—'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                        {ratio !== null ? (
+                          <span style={{ color: Math.abs(ratio - configRatio) > 0.5 ? '#f0a020' : '#888', fontSize: 12 }}
+                            title={`Configured CPC per Token: ${configRatio}`}>
+                            {ratio.toFixed(1)}
+                          </span>
+                        ) : <span style={{ color: '#444' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                        <span style={{ fontSize: 14 }} title={s.show_on_prize_board !== false ? 'Shown on Prize Board' : 'Hidden from Prize Board'}>
+                          {s.show_on_prize_board !== false ? '👁️' : '🚫'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                        <span style={{ fontSize: 11, color: s.is_active ? '#4ade80' : '#555' }}>{s.is_active ? 'Active' : 'Inactive'}</span>
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button onClick={() => startEditItem(s)}
+                          style={{ background: 'none', border: '1px solid #333', color: '#90CAF9', borderRadius: 5, padding: '3px 10px', fontSize: 12, cursor: 'pointer', marginRight: 6 }}>
+                          Edit
+                        </button>
+                        <button onClick={() => removeStoreItem(s.id, s.label)}
+                          style={{ background: 'none', border: '1px solid #4a1010', color: '#ef5350', borderRadius: 5, padding: '3px 10px', fontSize: 12, cursor: 'pointer' }}>
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
+            </div>
           </div>
         )}
       </div>
