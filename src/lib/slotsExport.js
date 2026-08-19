@@ -24,7 +24,7 @@ export async function exportSlotsXLSX(eventId, eventName) {
       .select('*, slots_players(display_name)')
       .eq('event_id', eventId).order('spun_at', { ascending: false }).limit(5000),
     supabase.from('slots_prize_board')
-      .select('*, slots_players(display_name), slots_store_items(label)')
+      .select('*, slots_players(display_name), slots_store_items(label, show_on_prize_board)')
       .eq('event_id', eventId).order('purchased_at'),
     supabase.from('slots_store_items').select('*').eq('event_id', eventId).order('cost_cpc'),
     supabase.from('slots_payout_table').select('*').eq('event_id', eventId).order('payout_cpc', { ascending: false }),
@@ -108,10 +108,25 @@ export async function exportSlotsXLSX(eventId, eventName) {
     'Prize':        p.slots_store_items?.label ?? '--',
     'Cost (CPC)':   p.cost_cpc_at_purchase,
     'Purchased At': new Date(p.purchased_at).toLocaleString(),
+    'On Board':     p.slots_store_items?.show_on_prize_board !== false ? 'Yes' : 'No',
     'Fulfilled':    p.paid ? 'Yes' : 'No',
     'Fulfilled At': p.paid_at ? new Date(p.paid_at).toLocaleString() : '--',
   }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(prizeRows), 'Prize Board');
+
+  // ── Sheet 5b: Store Items ──────────────────────────────────────────────────
+  const storeItemRows = (storeItems ?? []).map(s => ({
+    'Item':              s.label,
+    'Cost (CPC)':        s.cost_cpc,
+    'Total Qty':         s.quantity ?? 'Unlimited',
+    'Qty Remaining':     s.quantity_remaining ?? 'Unlimited',
+    'Max / Player':      s.max_per_player ?? 'Unlimited',
+    'Pays Tokens':       s.pays_out_slot_tokens ?? '--',
+    'CPC:Token Ratio':   s.pays_out_slot_tokens ? (s.cost_cpc / s.pays_out_slot_tokens).toFixed(2) : '--',
+    'Show on Board':     s.show_on_prize_board !== false ? 'Yes' : 'No',
+    'Active':            s.is_active ? 'Yes' : 'No',
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(storeItemRows), 'Store Items');
 
   // ── Sheet 6: Pay Table ─────────────────────────────────────────────────────
   const payoutRows = (payoutTable ?? []).map(r => ({
