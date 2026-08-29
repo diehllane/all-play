@@ -12,6 +12,7 @@ const EVENT_TYPES = [
   { value: 'config_change', label: 'Config Change' },
   { value: 'account_create',label: 'Account Created' },
   { value: 'role_change',   label: 'Role Change' },
+  { value: 'password_reset',label: 'Password Reset' },
 ]
 
 const TYPE_COLORS = {
@@ -21,6 +22,7 @@ const TYPE_COLORS = {
   config_change:  '#8e44ad',
   account_create: '#16a085',
   role_change:    '#c0392b',
+  password_reset: '#daa520',
 }
 
 const PAGE_SIZE = 50

@@ -20,6 +20,11 @@ export default function OwnerPage() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
 
+  // Password reset
+  const [resettingId, setResettingId] = useState(null);
+  const [resetResult, setResetResult] = useState(null); // { email, password }
+  const [copied, setCopied] = useState(false);
+
   // New user form
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -104,6 +109,49 @@ export default function OwnerPage() {
     flash(`${user.email} is now ${ROLE_LABELS[targetRole]}.`);
   }
 
+  async function resetPassword(user) {
+    const confirmed = window.confirm(
+      `Are you sure you want to reset the password for ${user.email}?\n\nTheir current password will stop working immediately. A new random password will be generated for you to send them.`
+    );
+    if (!confirmed) return;
+
+    setResettingId(user.id);
+    setMsg(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/reset-password`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ user_id: user.id }),
+        }
+      );
+      const result = await res.json();
+      if (!res.ok || result.error) throw new Error(result.error ?? 'Password reset failed');
+      setCopied(false);
+      setResetResult({ email: result.email, password: result.password });
+      flash(`Password reset for ${user.email}.`);
+    } catch (err) {
+      flash(err.message, true);
+    }
+    setResettingId(null);
+  }
+
+  async function copyResetPassword() {
+    if (!resetResult) return;
+    try {
+      await navigator.clipboard.writeText(resetResult.password);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 3000);
+    } catch {
+      flash('Could not copy automatically — select and copy the password manually.', true);
+    }
+  }
+
   const filtered = users.filter(u => {
     const matchRole = !filterRole || u.role === filterRole;
     const matchSearch = !filterSearch || (u.email ?? '').toLowerCase().includes(filterSearch.toLowerCase());
@@ -133,6 +181,26 @@ export default function OwnerPage() {
       {msg && (
         <div style={{ background: msg.isError ? '#2d0a0a' : '#0a2d0a', border: `1px solid ${msg.isError ? ACC : '#2e7d32'}`, color: msg.isError ? '#ef9a9a' : '#81c784', borderRadius: 8, padding: '12px 16px', marginBottom: 20 }}>
           {msg.text}
+        </div>
+      )}
+
+      {resetResult && (
+        <div style={s.resetCard}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={s.cardTitle}>New Password for {resetResult.email}</div>
+              <p style={s.cardDesc}>
+                Copy this and send it to them via Discord or in-game chat. It will not be shown again.
+              </p>
+              <div style={s.passwordRow}>
+                <code style={s.passwordText}>{resetResult.password}</code>
+                <button onClick={copyResetPassword} style={s.copyBtn}>
+                  {copied ? '✓ Copied' : 'Copy'}
+                </button>
+              </div>
+            </div>
+            <button onClick={() => setResetResult(null)} style={s.dismissBtn}>✕</button>
+          </div>
         </div>
       )}
 
@@ -223,7 +291,14 @@ export default function OwnerPage() {
                     </div>
                   </div>
                   {u.id !== profile?.id && (
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <button
+                        onClick={() => resetPassword(u)}
+                        disabled={resettingId === u.id}
+                        style={s.resetBtn}
+                      >
+                        {resettingId === u.id ? 'Resetting...' : '🔑 Reset Password'}
+                      </button>
                       {ROLES.filter(r => r !== u.role).map(r => (
                         <button
                           key={r}
@@ -275,4 +350,10 @@ const s = {
   userEmail: { color: '#fff', fontSize: 14, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 },
   userMeta: { color: '#666', fontSize: 12, marginTop: 2 },
   youBadge: { background: '#2a2a2a', color: '#888', borderRadius: 4, padding: '1px 6px', fontSize: 11 },
+  resetBtn: { background: 'transparent', border: '1px solid #b8860b', color: '#daa520', borderRadius: 4, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' },
+  resetCard: { background: '#241c05', border: '1px solid #b8860b', borderRadius: 8, padding: '16px 20px', marginBottom: 20 },
+  passwordRow: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 },
+  passwordText: { background: '#111', border: '1px solid #333', color: '#fff', borderRadius: 6, padding: '8px 12px', fontSize: 16, letterSpacing: '0.05em', fontFamily: 'monospace' },
+  copyBtn: { background: '#daa520', color: '#111', border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' },
+  dismissBtn: { background: 'transparent', border: 'none', color: '#888', fontSize: 16, cursor: 'pointer', padding: '0 4px' },
 };
