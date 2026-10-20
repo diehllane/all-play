@@ -337,6 +337,11 @@ export default function SlotsPage() {
   if (!config) return <div style={styles.center}>Event not found.</div>;
 
   const myTokens = myPlayer?.slot_tokens ?? 0;
+  // Event-wide CPC won per token spent — the baseline the Leaderboard's CPC / Token column is compared against
+  const totalTokensSpent = players.reduce((sum, p) => sum + (Number(p.total_tokens_spent) || 0), 0);
+  const totalCpcWon = players.reduce((sum, p) => sum + (Number(p.total_cpc_won) || 0), 0);
+  const avgCpcPerToken = totalTokensSpent > 0 ? totalCpcWon / totalTokensSpent : null;
+
   const myCpc = myPlayer?.casino_prize_coins ?? 0;
   const isWin = lastOutcome && lastOutcome.payout_cpc > 0;
   const isJackpot = lastOutcome?.payout_cpc >= 34045;
@@ -590,19 +595,34 @@ export default function SlotsPage() {
 
         {activeTab === 'leaderboard' && (
           <div style={styles.panelWrap}>
-            <div style={styles.panelHeader}><span style={{ ...styles.sectionTitle, color: theme }}>Leaderboard</span></div>
+            <div style={styles.panelHeader}>
+              <span style={{ ...styles.sectionTitle, color: theme }}>Leaderboard</span>
+              {avgCpcPerToken !== null && (
+                <span style={{ fontSize: 12, opacity: 0.7 }} title="Event-wide Total CPC Won ÷ Tokens Spent">
+                  Event average: <span style={{ color: '#d4af37', fontWeight: 700 }}>{avgCpcPerToken.toFixed(2)}</span> CPC per token
+                </span>
+              )}
+            </div>
             {players.length === 0 && <div style={styles.empty}>No players yet.</div>}
             <table style={styles.table}>
               <thead>
                 <tr>
-                  {['#','Player','Spins','Total CPC Won','Best Spin','Jackpots','Tokens','CPC Balance'].map(h => (
-                    <th key={h} style={styles.th}>{h}</th>
+                  {['#','Player','Spins','Total CPC Won','CPC / Token','Best Spin','Jackpots','Tokens','CPC Balance'].map(h => (
+                    <th key={h} style={styles.th}
+                      title={h === 'CPC / Token' ? 'Total CPC Won ÷ Tokens Spent. Green = above the event average, red = below.' : undefined}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {players.map((p, i) => {
                   const best = bestSpins[p.id];
+                  const spent = Number(p.total_tokens_spent) || 0;
+                  const ratio = spent > 0 ? (Number(p.total_cpc_won) || 0) / spent : null;
+                  let ratioColor = '#555';
+                  if (ratio !== null) {
+                    if (avgCpcPerToken === null || Math.abs(ratio - avgCpcPerToken) < 0.005) ratioColor = '#bbb';
+                    else ratioColor = ratio > avgCpcPerToken ? '#4CAF50' : '#ef5350';
+                  }
                   return (
                     <tr key={p.id} style={{ background: myPlayer?.id === p.id ? `${theme}15` : 'transparent' }}>
                       <td style={{ ...styles.td, color: '#888', width: 30 }}>{i + 1}</td>
@@ -618,6 +638,19 @@ export default function SlotsPage() {
                       </td>
                       <td style={styles.tdNum}>{p.total_spins?.toLocaleString()}</td>
                       <td style={{ ...styles.tdNum, color: '#d4af37' }}>{p.total_cpc_won?.toLocaleString()} CPC</td>
+                      <td style={{ ...styles.tdNum, color: ratioColor, fontWeight: ratio !== null ? 600 : 400 }}
+                        title={ratio !== null
+                          ? `${(Number(p.total_cpc_won) || 0).toLocaleString()} CPC ÷ ${spent.toLocaleString()} tokens spent${avgCpcPerToken !== null ? ` (event avg ${avgCpcPerToken.toFixed(2)})` : ''}`
+                          : 'No tokens spent yet'}>
+                        {ratio !== null ? (
+                          <>
+                            {ratio.toFixed(2)}
+                            {avgCpcPerToken !== null && Math.abs(ratio - avgCpcPerToken) >= 0.005 && (
+                              <span style={{ fontSize: 10, marginLeft: 4 }}>{ratio > avgCpcPerToken ? '▲' : '▼'}</span>
+                            )}
+                          </>
+                        ) : '--'}
+                      </td>
                       <td style={styles.tdNum}>
                         {best ? (
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
