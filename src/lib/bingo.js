@@ -2,6 +2,7 @@
 // Core scoring and commit logic for the Bingo game mode
 
 import { supabase } from './supabase';
+import { sendDiscord } from './webhooks';
 
 // ============================================================
 // CONSTANTS
@@ -428,18 +429,7 @@ export async function getNextDayNumber(eventId) {
 // DISCORD WEBHOOK
 // ============================================================
 
-async function sendDiscordWebhook(webhookUrl, payload) {
-  if (!webhookUrl) return;
-  try {
-    await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-  } catch (e) {
-    console.warn('Discord webhook failed:', e.message);
-  }
-}
+// Delivery is server-side (send-discord edge function) — URLs never reach the browser.
 
 function buildDiscordMessage({ config, teams, players, results, dayNumber, teamScoreUpdates, playerScoreUpdates }) {
   const isTeam = config.event_type === 'team';
@@ -697,16 +687,13 @@ export async function commitBingoDay(eventId, dayNumber, userId) {
     teamScoreUpdates: results.teamScoreUpdates,
     playerScoreUpdates: results.playerScoreUpdates,
   });
-  // Overall event webhook
-  await sendDiscordWebhook(config.discord_webhook_url, discordPayload);
-  // Per-team webhooks (team events only)
+  // Overall event webhook + per-team webhooks (team events only).
+  // The edge function skips any target that has no webhook configured.
+  const discordPosts = [{ target: { scope: 'overall' }, payload: discordPayload }];
   if (config.event_type === 'team' && teams?.length > 0) {
-    await Promise.all(
-      teams
-        .filter(t => t.discord_webhook_url)
-        .map(t => sendDiscordWebhook(t.discord_webhook_url, discordPayload))
-    );
+    for (const t of teams) discordPosts.push({ target: { scope: 'team', id: t.id }, payload: discordPayload });
   }
+  await sendDiscord(eventId, discordPosts);
 
   // 13. Insert daily scores
   const dailyInserts = results.dailyScoreRows.map(r => ({

@@ -2,6 +2,7 @@
 // All DB operations and business logic for the High Score game type.
 
 import { supabase } from './supabase';
+import { getEventWebhooks, setEventWebhook, clearTargetWebhook } from './webhooks';
 
 // ── CONFIG ───────────────────────────────────────────────────
 
@@ -37,30 +38,47 @@ export async function getHSTeams(eventId) {
   return data || [];
 }
 
+// Edit page only: teams with their webhook URL merged in as `discord_webhook_url`.
+// URLs come from event_webhooks, which only event_runner/owner can read.
+export async function getHSTeamsWithWebhooks(eventId) {
+  const [teams, hooks] = await Promise.all([getHSTeams(eventId), getEventWebhooks(eventId)]);
+  return teams.map(t => ({ ...t, discord_webhook_url: hooks.team[t.id] || '' }));
+}
+
+// `discord_webhook_url` is accepted on team objects for convenience but stored in
+// event_webhooks, never on hs_teams.
 export async function createHSTeam(eventId, team) {
+  const { discord_webhook_url, ...row } = team;
   const { data, error } = await supabase
     .from('hs_teams')
-    .insert({ ...team, event_id: eventId })
+    .insert({ ...row, event_id: eventId })
     .select()
     .single();
   if (error) throw error;
+  if (discord_webhook_url?.trim()) await setEventWebhook(eventId, 'team', data.id, discord_webhook_url);
   return data;
 }
 
 export async function updateHSTeam(teamId, updates) {
+  const { discord_webhook_url, ...row } = updates;
   const { data, error } = await supabase
     .from('hs_teams')
-    .update(updates)
+    .update(row)
     .eq('id', teamId)
     .select()
     .single();
   if (error) throw error;
+  if (discord_webhook_url !== undefined) {
+    await setEventWebhook(data.event_id, 'team', teamId, discord_webhook_url);
+  }
   return data;
 }
 
 export async function deleteHSTeam(teamId) {
+  const { data } = await supabase.from('hs_teams').select('event_id').eq('id', teamId).single();
   const { error } = await supabase.from('hs_teams').delete().eq('id', teamId);
   if (error) throw error;
+  if (data?.event_id) await clearTargetWebhook(data.event_id, 'team', teamId);
 }
 
 // ── PLAYERS ──────────────────────────────────────────────────

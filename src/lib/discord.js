@@ -1,6 +1,10 @@
 // src/lib/discord.js
-// Fires Discord webhooks on day commit for all game types.
-// All fires are independent — one failure doesn't block others.
+// Builds Discord messages on day commit for All-Play, Board Game and High Score.
+// Delivery is server-side via the send-discord edge function (see webhooks.js):
+// the browser never sees a webhook URL. Targets are { scope, id } objects.
+// A failed post never blocks a commit.
+
+import { sendDiscord } from './webhooks';
 
 const POKEMON_RED = 0xc62828;
 
@@ -22,16 +26,18 @@ function formatScore(n) {
 // ── BOARD GAME ──────────────────────────────────────────────
 
 export async function fireBoardGameWebhooks({
+  eventId,
   eventName,
   dayNumber,
   publicUrl,
   themeColor,
-  overallWebhook,
-  // playerWebhooks: [{ playerName, webhookUrl, todayScore, totalPosition, badges }]
+  overallWebhook, // { scope: "overall" } or null
+  // playerWebhooks: [{ playerName, webhookUrl: { scope: "player", id }, todayScore, totalPosition, badges }]
   playerWebhooks = [],
   // allPlayers: [{ name, position, badges }] sorted by position desc
   allPlayers = [],
 }) {
+  const posts = [];
   const color = hexToDecimal(themeColor);
   const label = todayLabel(dayNumber);
   const standingsText = allPlayers
@@ -57,7 +63,7 @@ export async function fireBoardGameWebhooks({
         },
       ],
     };
-    await safePost(overallWebhook, payload);
+    queuePost(posts, overallWebhook, payload);
   }
 
   // Per-player webhooks
@@ -80,23 +86,26 @@ export async function fireBoardGameWebhooks({
         },
       ],
     };
-    await safePost(pw.webhookUrl, payload);
+    queuePost(posts, pw.webhookUrl, payload);
   }
+  await sendDiscord(eventId, posts);
 }
 
 // ── ALL-PLAY TOURNAMENT ──────────────────────────────────────
 
 export async function fireAllPlayWebhooks({
+  eventId,
   eventName,
   dayNumber,
   publicUrl,
   themeColor,
-  overallWebhook,
-  // teamWebhooks: [{ teamName, webhookUrl, todayScore, wins, losses, ties, points, rank }]
+  overallWebhook, // { scope: "overall" } or null
+  // teamWebhooks: [{ teamName, webhookUrl: { scope: "team", id }, todayScore, wins, losses, ties, points, rank }]
   teamWebhooks = [],
   // allTeams: [{ name, points, wins, losses, ties, rank }] sorted by points desc
   allTeams = [],
 }) {
+  const posts = [];
   const color = hexToDecimal(themeColor);
   const label = todayLabel(dayNumber);
   const teamStandingsText = allTeams
@@ -118,7 +127,7 @@ export async function fireAllPlayWebhooks({
         },
       ],
     };
-    await safePost(overallWebhook, payload);
+    queuePost(posts, overallWebhook, payload);
   }
 
   for (const tw of teamWebhooks) {
@@ -141,26 +150,29 @@ export async function fireAllPlayWebhooks({
         },
       ],
     };
-    await safePost(tw.webhookUrl, payload);
+    queuePost(posts, tw.webhookUrl, payload);
   }
+  await sendDiscord(eventId, posts);
 }
 
 // ── HIGH SCORE ───────────────────────────────────────────────
 
 export async function fireHighScoreWebhooks({
+  eventId,
   eventName,
   dayNumber,
   publicUrl,
   themeColor,
   mode, // 'solo' | 'team'
-  overallWebhook,
-  // teamWebhooks: [{ teamName, webhookUrl, todayTeamScore, totalTeamScore, rank, members: [{name, todayScore, totalScore}] }]
+  overallWebhook, // { scope: "overall" } or null
+  // teamWebhooks: [{ teamName, webhookUrl: { scope: "team", id }, todayTeamScore, totalTeamScore, rank, members: [{name, todayScore, totalScore}] }]
   teamWebhooks = [],
   // allTeams: [{ name, totalScore, rank }] for team mode
   allTeams = [],
   // allPlayers: [{ name, teamName, totalScore, rank }] always
   allPlayers = [],
 }) {
+  const posts = [];
   const color = hexToDecimal(themeColor);
   const label = todayLabel(dayNumber);
 
@@ -194,7 +206,7 @@ export async function fireHighScoreWebhooks({
         },
       ],
     };
-    await safePost(overallWebhook, payload);
+    queuePost(posts, overallWebhook, payload);
   }
 
   for (const tw of teamWebhooks) {
@@ -222,24 +234,15 @@ export async function fireHighScoreWebhooks({
         },
       ],
     };
-    await safePost(tw.webhookUrl, payload);
+    queuePost(posts, tw.webhookUrl, payload);
   }
+  await sendDiscord(eventId, posts);
 }
 
 // ── SHARED ───────────────────────────────────────────────────
 
-async function safePost(url, payload) {
-  if (!url) return;
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    if (!res.ok) {
-      console.warn(`Discord webhook failed (${res.status}):`, url);
-    }
-  } catch (err) {
-    console.warn('Discord webhook error:', err);
-  }
+function queuePost(posts, target, payload) {
+  // target: { scope: 'overall' } | { scope: 'team' | 'player', id }
+  if (!target?.scope) return;
+  posts.push({ target, payload });
 }

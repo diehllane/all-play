@@ -4,6 +4,7 @@
 // Spin resolution is handled server-side by the slots-spin Edge Function.
 
 import { supabase } from './supabase';
+import { sendDiscord, setEventWebhook } from './webhooks';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
@@ -250,8 +251,9 @@ export async function commitSlotsDay(eventId, dayNumber, userId) {
     metadata:  { day_number: dayNumber, commit_id: commitRow.id, player_count: players.length },
   });
 
-  // 10. Fire Discord webhook (non-blocking)
-  if (config.discord_webhook_url) {
+  // 10. Fire Discord webhook (non-blocking). The edge function looks up the URL
+  //     server-side and skips silently if none is configured.
+  {
     const { data: updatedPlayers } = await supabase
       .from('slots_players')
       .select('id, display_name, slot_tokens, total_cpc_won')
@@ -261,7 +263,7 @@ export async function commitSlotsDay(eventId, dayNumber, userId) {
     for (const p of updatedPlayers ?? []) playerMap[p.id] = p;
 
     sendSlotsDiscordWebhook({
-      webhookUrl:    config.discord_webhook_url,
+      eventId,
       eventTitle:    config.game_title || 'PokeNexus Slots',
       dayNumber,
       playerResults,
@@ -324,8 +326,7 @@ export async function undoSlotsCommit(eventId) {
 
 // ─── DISCORD WEBHOOK ─────────────────────────────────────────────────────────
 
-async function sendSlotsDiscordWebhook({ webhookUrl, eventTitle, dayNumber, playerResults, playerMap }) {
-  if (!webhookUrl) return;
+async function sendSlotsDiscordWebhook({ eventId, eventTitle, dayNumber, playerResults, playerMap }) {
 
   const lines = [`🎰 **${eventTitle} — Day ${dayNumber} Commit**`, ''];
 
@@ -347,15 +348,7 @@ async function sendSlotsDiscordWebhook({ webhookUrl, eventTitle, dayNumber, play
   });
   lines.push(balanceParts.join(' | '));
 
-  try {
-    await fetch(webhookUrl, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ content: lines.join('\n') }),
-    });
-  } catch (err) {
-    console.warn('Discord webhook error:', err.message);
-  }
+  await sendDiscord(eventId, [{ target: { scope: 'overall' }, payload: { content: lines.join('\n') } }]);
 }
 
 // ─── PRIZE STORE ──────────────────────────────────────────────────────────────
@@ -489,7 +482,6 @@ export async function seedSlotsEvent({
     game_title:          gameTitle,
     game_subtitle:       gameSubtitle || null,
     theme_color:         themeColor || '#c62828',
-    discord_webhook_url: discordWebhookUrl || null,
     score_divisor:       scoreDivisor ?? 1,
     score_operation:     scoreOperation || 'divide',
     score_rounding:      scoreRounding || 'floor',
@@ -498,6 +490,10 @@ export async function seedSlotsEvent({
     symbol_images:       DEFAULT_SYMBOL_IMAGES,
   });
   if (cfgErr) throw cfgErr;
+
+  if (discordWebhookUrl?.trim()) {
+    await setEventWebhook(eventId, 'overall', null, discordWebhookUrl);
+  }
 
   const { error: seedErr } = await supabase.rpc('seed_slots_payout_table', { p_event_id: eventId });
   if (seedErr) throw seedErr;
