@@ -6,7 +6,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import {
   getHSConfig, upsertHSConfig,
-  getHSTeams, getHSPlayers,
+  getHSTeamsWithWebhooks, getHSPlayers,
   createHSTeam, updateHSTeam, deleteHSTeam,
   createHSPlayer, updateHSPlayer, deleteHSPlayer,
 } from '../../lib/highscore';
@@ -203,7 +203,7 @@ export default function HighScoreEditPage() {
 
       const [cfg, tm, pl] = await Promise.all([
         getHSConfig(eventId).catch(() => null),
-        getHSTeams(eventId),
+        getHSTeamsWithWebhooks(eventId),
         getHSPlayers(eventId),
       ]);
       setConfig(cfg);

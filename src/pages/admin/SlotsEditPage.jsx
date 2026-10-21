@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
+import { getEventWebhooks, setEventWebhook } from '../../lib/webhooks';
 
 const ALL_SYMBOLS = ['masterball','pokeball','greatball','ultraball','pikachu','eevee','rare_candy','potion','berry'];
 const SYMBOL_LABELS = { masterball:'Masterball', pokeball:'Pokeball', greatball:'Greatball', ultraball:'Ultraball', pikachu:'Pikachu', eevee:'Eevee', rare_candy:'Rare Candy', potion:'Potion', berry:'Berry' };
@@ -168,7 +169,7 @@ export default function SlotsEditPage() {
         min_tokens_per_day: cfg.min_tokens_per_day ?? 0,
         max_tokens_per_day: cfg.max_tokens_per_day ?? 0,
         cpc_per_token: cfg.cpc_per_token ?? 5,
-        discord_webhook_url: cfg.discord_webhook_url || '',
+        discord_webhook_url: (await getEventWebhooks(eventId)).overall,
       });
       setCategories(catRes.data || []);
       setStoreItems(storeRes.data || []);
@@ -214,9 +215,13 @@ export default function SlotsEditPage() {
       min_tokens_per_day: parseInt(form.min_tokens_per_day) || 0,
       max_tokens_per_day: parseInt(form.max_tokens_per_day) || 0,
       cpc_per_token: parseInt(form.cpc_per_token) || 5,
-      discord_webhook_url: form.discord_webhook_url || null,
     }).eq('event_id', eventId);
-    flash(e ? 'Error: ' + e.message : '✅ Saved!');
+    let whErr = null;
+    if (!e) {
+      try { await setEventWebhook(eventId, 'overall', null, form.discord_webhook_url); }
+      catch (err) { whErr = err; }
+    }
+    flash(e ? 'Error: ' + e.message : whErr ? 'Saved, but webhook: ' + whErr.message : '✅ Saved!');
     setSaving(false);
     if (!e) loadAll();
   };

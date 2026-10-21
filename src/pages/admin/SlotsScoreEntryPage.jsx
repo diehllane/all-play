@@ -29,6 +29,7 @@ export default function SlotsScoreEntryPage() {
 
   const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
   const canEnter = canManage || profile?.role === 'scorer';
+  const canCommit = canEnter; // scorers commit; undo stays runner/owner only
 
   const loadAll = useCallback(async () => {
     try {
@@ -228,7 +229,7 @@ export default function SlotsScoreEntryPage() {
           )}
         </div>
 
-        {canManage && (
+        {canCommit && (
           <div style={styles.commitBar}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <button
@@ -237,7 +238,7 @@ export default function SlotsScoreEntryPage() {
                 style={{ ...styles.bigBtn, background: theme, opacity: entries.length === 0 ? 0.4 : 1 }}>
                 {commitLoading ? 'Committing...' : `Commit Day ${dayNumber}`}
               </button>
-              {lastCommit && (
+              {canManage && lastCommit && (
                 <button onClick={handleUndo} disabled={undoLoading}
                   style={{ ...styles.bigBtn, background: '#555' }}>
                   {undoLoading ? 'Undoing...' : `Undo Day ${lastCommit.day_number}`}

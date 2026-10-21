@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { logAudit } from '../../lib/audit'
+import { getEventWebhooks, setEventWebhook, clearTargetWebhook } from '../../lib/webhooks'
 
 // ── CSV helpers ───────────────────────────────────────────
 function parseCSV(text) {
@@ -156,9 +157,11 @@ export default function AllPlayEditPage() {
       supabase.from('categories').select('*').eq('event_id', id).order('display_order'),
       supabase.from('bracket_round_config').select('*').eq('event_id', id).order('bracket_type').order('round_number'),
     ])
+    // Webhook URLs live in event_webhooks (runner/owner only); merged in for display/export.
+    const hooks = await getEventWebhooks(id)
     setEvent(ev)
     setDivisions(divs || [])
-    setTeams(teamsData || [])
+    setTeams((teamsData || []).map(t => ({ ...t, discord_webhook_url: hooks.team[t.id] || '' })))
     setCategories(cats || [])
     setBracketConfig(bConfig || [])
     setLoading(false)
@@ -186,15 +189,18 @@ export default function AllPlayEditPage() {
   // ── Teams ─────────────────────────────────────────────
   const handleAddTeam = async () => {
     if (!newTeamName.trim() || !newTeamDivision) return flash('Team name and division are required.', true)
-    const { error } = await supabase.from('teams').insert({
+    const { data: created, error } = await supabase.from('teams').insert({
       event_id: id,
       division_id: newTeamDivision,
       name: newTeamName.trim(),
       display_name: newTeamDisplay.trim() || newTeamName.trim(),
       team_number: teams.length + 1,
-      discord_webhook_url: newTeamWebhook.trim() || null,
-    })
+    }).select().single()
     if (error) return flash(error.message, true)
+    if (newTeamWebhook.trim()) {
+      try { await setEventWebhook(id, 'team', created.id, newTeamWebhook) }
+      catch (e) { flash(`Team added, but webhook: ${e.message}`, true) }
+    }
     setNewTeamName(''); setNewTeamDisplay(''); setNewTeamWebhook('')
     await fetchAll()
   }
@@ -202,6 +208,7 @@ export default function AllPlayEditPage() {
   const handleDeleteTeam = async (teamId) => {
     if (!confirm('Remove this team?')) return
     await supabase.from('teams').delete().eq('id', teamId)
+    await clearTargetWebhook(id, 'team', teamId)
     await fetchAll()
   }
 
@@ -216,16 +223,21 @@ export default function AllPlayEditPage() {
       if (existing) {
         await supabase.from('teams').update({
           display_name: row['display_name']?.trim() || name,
-          discord_webhook_url: row['discord_webhook']?.trim() || null,
           division_id: div.id,
         }).eq('id', existing.id)
+        try { await setEventWebhook(id, 'team', existing.id, row['discord_webhook']) }
+        catch (e) { errors.push(`${name}: ${e.message}`) }
       } else {
-        await supabase.from('teams').insert({
+        const { data: created, error: insErr } = await supabase.from('teams').insert({
           event_id: id, division_id: div.id, name,
           display_name: row['display_name']?.trim() || name,
           team_number: teams.length + imported + 1,
-          discord_webhook_url: row['discord_webhook']?.trim() || null,
-        })
+        }).select().single()
+        if (insErr) { errors.push(`${name}: ${insErr.message}`); continue }
+        if (row['discord_webhook']?.trim()) {
+          try { await setEventWebhook(id, 'team', created.id, row['discord_webhook']) }
+          catch (e) { errors.push(`${name}: ${e.message}`) }
+        }
       }
       imported++
     }

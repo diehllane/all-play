@@ -10,6 +10,7 @@ import {
   getHSLastCommittedDay, getHSDailyTotals, buildHSStandings,
 } from '../../lib/highscore';
 import { fireHighScoreWebhooks } from '../../lib/discord';
+import { getWebhookTargets, hasTarget } from '../../lib/webhooks';
 import { logAudit } from '../../lib/audit';
 
 const ACC = '#c62828';
@@ -151,9 +152,10 @@ export default function HighScoreScoreEntryPage() {
         allTotals, players, teams, freshConfig?.mode || 'solo'
       );
 
-      const overallWebhook = event?.discord_overall_webhook;
+      const targets = await getWebhookTargets(eventId);
+      const overallWebhook = hasTarget(targets, 'overall') ? { scope: 'overall' } : null;
       const teamWebhookList = teams
-        .filter(t => t.discord_webhook_url)
+        .filter(t => hasTarget(targets, 'team', t.id))
         .map(t => {
           const tStanding = teamStandings.find(ts => ts.teamId === t.id);
           const todayTeamScore = upserts
@@ -161,7 +163,7 @@ export default function HighScoreScoreEntryPage() {
             .reduce((s, u) => s + u.final_score, 0);
           return {
             teamName: t.name,
-            webhookUrl: t.discord_webhook_url,
+            webhookUrl: { scope: 'team', id: t.id },
             todayTeamScore,
             totalTeamScore: tStanding?.totalScore || 0,
             rank: tStanding?.rank || 0,
@@ -174,6 +176,7 @@ export default function HighScoreScoreEntryPage() {
 
       if (overallWebhook || teamWebhookList.length > 0) {
         await fireHighScoreWebhooks({
+          eventId,
           eventName: event?.name || 'Event',
           dayNumber,
           publicUrl: `${window.location.origin}/all-play/highscore/${eventId}`,

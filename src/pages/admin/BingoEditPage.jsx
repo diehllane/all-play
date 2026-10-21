@@ -4,6 +4,12 @@ import { supabase } from '../../lib/supabase';
 import { TEAM_COLORS } from '../../lib/bingo';
 import { useAuth } from '../../contexts/AuthContext';
 import { logAudit } from '../../lib/audit';
+import { getEventWebhooks, setEventWebhook } from '../../lib/webhooks';
+
+// Webhook URLs live in event_webhooks (runner/owner only). They're merged onto
+// config/team objects as `discord_webhook_url` for editing, and stripped before
+// any bingo_config / bingo_teams write.
+const mergeTeamHooks = (rows, hooks) => (rows ?? []).map(t => ({ ...t, discord_webhook_url: hooks.team[t.id] || '' }));
 
 // ── CSV helpers ───────────────────────────────────────────
 function parseCSV(text) {
@@ -506,10 +512,11 @@ export default function BingoEditPage() {
         supabase.from('bingo_teams').select('*').eq('event_id', eventId).order('sort_order'),
         supabase.from('events').select('name').eq('id', eventId).single(),
       ]);
-      setConfig(cfg ?? {});
+      const hooks = await getEventWebhooks(eventId);
+      setConfig({ ...(cfg ?? {}), discord_webhook_url: hooks.overall });
       setSquares(sqs?.length > 0 ? sqs : defaultSquares(cfg?.free_space_enabled ?? true));
       setPlayers(pls ?? []);
-      setTeams(tms ?? []);
+      setTeams(mergeTeamHooks(tms, hooks));
       setEventName(ev?.name ?? '');
       setLoading(false);
     })();
@@ -517,9 +524,12 @@ export default function BingoEditPage() {
 
   const saveConfig = async () => {
     setSaving(true);
-    const { error } = await supabase.from('bingo_config').update(config).eq('event_id', eventId);
+    const { discord_webhook_url, ...cfgRow } = config;
+    const { error } = await supabase.from('bingo_config').update(cfgRow).eq('event_id', eventId);
+    if (error) { setSaving(false); return flash(error.message, true); }
+    try { await setEventWebhook(eventId, 'overall', null, discord_webhook_url); }
+    catch (e) { setSaving(false); return flash(e.message, true); }
     setSaving(false);
-    if (error) return flash(error.message, true);
     flash('Configuration saved.');
     await logAudit({ actor: profile, eventType: 'config_change', action: `Saved bingo config for "${eventName}"`, eventId, eventName });
   };
@@ -548,14 +558,18 @@ export default function BingoEditPage() {
     setSaving(true);
     try {
       for (const t of teams) {
-        const { id, _isNew, ...fields } = t;
+        const { id, _isNew, discord_webhook_url, ...fields } = t;
+        let teamId = id;
         if (_isNew) {
-          const { data } = await supabase.from('bingo_teams').insert({ ...fields, event_id: eventId }).select().single();
+          const { data, error } = await supabase.from('bingo_teams').insert({ ...fields, event_id: eventId }).select().single();
+          if (error) throw error;
+          teamId = data.id;
           setPlayers(prev => prev.map(p => p.team_id === id ? { ...p, team_id: data.id } : p));
           setTeams(prev => prev.map(t2 => t2.id === id ? { ...t2, id: data.id, _isNew: false } : t2));
         } else {
           await supabase.from('bingo_teams').update(fields).eq('id', id);
         }
+        await setEventWebhook(eventId, 'team', teamId, discord_webhook_url);
       }
       for (const p of players) {
         const { id, _isNew, ...fields } = p;
@@ -569,7 +583,8 @@ export default function BingoEditPage() {
         supabase.from('bingo_players').select('*').eq('event_id', eventId).order('sort_order'),
         supabase.from('bingo_teams').select('*').eq('event_id', eventId).order('sort_order'),
       ]);
-      setPlayers(pls ?? []); setTeams(tms ?? []);
+      const hooks = await getEventWebhooks(eventId);
+      setPlayers(pls ?? []); setTeams(mergeTeamHooks(tms, hooks));
       flash('Players and teams saved.');
     } catch (e) { flash(e.message, true); }
     finally { setSaving(false); }
@@ -690,21 +705,31 @@ export default function BingoEditPage() {
         await supabase.from('bingo_teams').update({
           avatar_url: row['avatar_url']?.trim() || existing.avatar_url,
           color: row['color']?.trim() || existing.color,
-          discord_webhook_url: row['discord_webhook']?.trim() || existing.discord_webhook_url,
         }).eq('id', existing.id);
+        if (row['discord_webhook']?.trim()) {
+          try { await setEventWebhook(eventId, 'team', existing.id, row['discord_webhook']); }
+          catch (e) { errors.push(`${name}: ${e.message}`); }
+        }
       } else {
-        await supabase.from('bingo_teams').insert({
+        const { data: created, error: insErr } = await supabase.from('bingo_teams').insert({
           event_id: eventId, name,
           avatar_url: row['avatar_url']?.trim() || null,
           color: row['color']?.trim() || TEAM_COLORS[imported % TEAM_COLORS.length],
-          discord_webhook_url: row['discord_webhook']?.trim() || null,
           sort_order: teams.length + imported,
-        });
+        }).select().single();
+        if (insErr) { errors.push(`${name}: ${insErr.message}`); continue; }
+        if (row['discord_webhook']?.trim()) {
+          try { await setEventWebhook(eventId, 'team', created.id, row['discord_webhook']); }
+          catch (e) { errors.push(`${name}: ${e.message}`); }
+        }
       }
       imported++;
     }
-    const { data } = await supabase.from('bingo_teams').select('*').eq('event_id', eventId).order('sort_order');
-    setTeams(data ?? []);
+    const [{ data }, hooks] = await Promise.all([
+      supabase.from('bingo_teams').select('*').eq('event_id', eventId).order('sort_order'),
+      getEventWebhooks(eventId),
+    ]);
+    setTeams(mergeTeamHooks(data, hooks));
     if (errors.length) return { error: true, text: `${imported} imported, ${errors.length} errors: ${errors[0]}` };
     return { text: `${imported} teams imported.` };
   };

@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import BoardBuilder from '../../components/BoardBuilder';
 import { logAudit } from '../../lib/audit';
+import { getEventWebhooks, setEventWebhook } from '../../lib/webhooks';
 
 const DEFAULT_CONFIG = {
   track_length: 252,
@@ -127,6 +128,7 @@ export default function BoardGameEditPage() {
   const { profile } = useAuth();
 
   const [event, setEvent]           = useState(null);
+  const [overallWebhook, setOverallWebhook] = useState('');
   const [config, setConfig]         = useState(null);
   const [squares, setSquares]       = useState([]);
   const [players, setPlayers]       = useState([]);
@@ -148,6 +150,7 @@ export default function BoardGameEditPage() {
       supabase.from('categories').select('*').eq('event_id', eventId).order('name'),
     ]);
     setEvent(evRes.data);
+    getEventWebhooks(eventId).then(w => setOverallWebhook(w.overall));
     setSquares(sqRes.data || []);
     setPlayers(plRes.data || []);
     setCategories(catRes.data || []);
@@ -275,9 +278,9 @@ export default function BoardGameEditPage() {
         name: event.name,
         start_date: event.start_date || null,
         end_date: event.end_date || null,
-        discord_overall_webhook: event.discord_overall_webhook || null,
       }).eq('id', eventId);
       if (evErr) throw evErr;
+      await setEventWebhook(eventId, 'overall', null, overallWebhook);
 
       setMessage({ type: 'success', text: 'Configuration saved.' });
       await logAudit({
@@ -486,7 +489,7 @@ export default function BoardGameEditPage() {
               <Field label="Theme Color" value={config.theme_color} onChange={v => setConfig(c => ({ ...c, theme_color: v }))} type="color" />
               <Field label="Start Date" value={event?.start_date || ''} onChange={v => setEvent(e => ({ ...e, start_date: v }))} type="date" />
               <Field label="End Date" value={event?.end_date || ''} onChange={v => setEvent(e => ({ ...e, end_date: v }))} type="date" />
-              <Field label="Overall Discord Webhook" value={event?.discord_overall_webhook || ''} onChange={v => setEvent(e => ({ ...e, discord_overall_webhook: v }))} placeholder="https://discord.com/api/webhooks/..." />
+              <Field label="Overall Discord Webhook" value={overallWebhook} onChange={v => setOverallWebhook(v)} placeholder="https://discord.com/api/webhooks/..." />
               <Field label="Title Image URL" value={config.title_image_url || ''} onChange={v => setConfig(c => ({ ...c, title_image_url: v }))} placeholder="https://..." />
               <Field label="Track Length" value={config.track_length} onChange={v => setConfig(c => ({ ...c, track_length: parseInt(v) || 252 }))} type="number" />
               <Field label="Grid Columns" value={config.grid_columns} onChange={v => setConfig(c => ({ ...c, grid_columns: parseInt(v) || 18 }))} type="number" />

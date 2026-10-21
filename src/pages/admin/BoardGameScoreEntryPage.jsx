@@ -7,6 +7,7 @@ import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { fireBoardGameWebhooks } from '../../lib/discord';
+import { getWebhookTargets, hasTarget } from '../../lib/webhooks';
 import { logAudit } from '../../lib/audit';
 
 const ACC = '#c62828';
@@ -285,23 +286,26 @@ export default function BoardGameScoreEntryPage() {
         }))
         .sort((a, b) => b.position - a.position);
 
+      const targets = await getWebhookTargets(eventId);
       const playerWebhooks = players
-        .filter(p => p.discord_webhook_url)
+        .filter(p => hasTarget(targets, 'player', p.id))
         .map(p => ({
           playerName: p.name,
-          webhookUrl: p.discord_webhook_url,
+          webhookUrl: { scope: 'player', id: p.id },
           todayScore: rawScores[p.id] || 0,
           totalPosition: newPositions[p.id] || 0,
           badges: badgeAwards[p.id]?.length || 0,
         }));
 
-      if (event?.discord_overall_webhook || playerWebhooks.length > 0) {
+      const overallTarget = hasTarget(targets, 'overall') ? { scope: 'overall' } : null;
+      if (overallTarget || playerWebhooks.length > 0) {
         await fireBoardGameWebhooks({
+          eventId,
           eventName: event?.name || 'Board Game',
           dayNumber,
           publicUrl: `${window.location.origin}/all-play/board/${eventId}`,
           themeColor: config.theme_color || '#c62828',
-          overallWebhook: event?.discord_overall_webhook,
+          overallWebhook: overallTarget,
           playerWebhooks,
           allPlayers: sortedPlayers,
         });

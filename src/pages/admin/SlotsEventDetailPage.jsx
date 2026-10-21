@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { awardTokens, awardCPC } from '../../lib/slots';
 import { exportSlotsXLSX } from '../../lib/slotsExport';
+import { getWebhookTargets, hasTarget } from '../../lib/webhooks';
 
 export default function SlotsEventDetailPage() {
   const { eventId } = useParams();
@@ -13,6 +14,7 @@ export default function SlotsEventDetailPage() {
 
   const [event, setEvent] = useState(null);
   const [config, setConfig] = useState(null);
+  const [hasWebhook, setHasWebhook] = useState(false);
   const [players, setPlayers] = useState([]);
   const [categories, setCategories] = useState([]);
   const [commits, setCommits] = useState([]);
@@ -40,6 +42,7 @@ export default function SlotsEventDetailPage() {
   const flash = (text, isError = false) => { setMsg({ text, isError }); setTimeout(() => setMsg(null), 4000); };
 
   const loadAll = useCallback(async () => {
+    getWebhookTargets(eventId).then(t => setHasWebhook(hasTarget(t, 'overall')));
     try {
       const [evRes, cfgRes, playersRes, catsRes, commitsRes, storeRes, prizesRes, auditRes] = await Promise.all([
         supabase.from('events').select('*').eq('id', eventId).single(),
@@ -234,7 +237,7 @@ export default function SlotsEventDetailPage() {
                 ['Max Tokens/Day', config?.max_tokens_per_day === 0 ? 'None' : config?.max_tokens_per_day],
                 ['CPC per Token', config?.cpc_per_token ?? 5],
                 ['Theme Color', config?.theme_color ?? '#c62828'],
-                ['Discord Webhook', config?.discord_webhook_url ? 'Set' : '--'],
+                ['Discord Webhook', hasWebhook ? 'Set' : '--'],
               ].map(([k, v]) => (
                 <div key={k} style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 8, padding: '10px 12px' }}>
                   <div style={{ opacity: 0.6, fontSize: 11, marginBottom: 2 }}>{k}</div>

@@ -8,6 +8,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { upsertHSConfig } from '../../lib/highscore';
 import { seedSlotsEvent } from '../../lib/slots';
+import { setEventWebhook } from '../../lib/webhooks';
 
 const ACC = '#c62828';
 
@@ -163,12 +164,12 @@ function BingoWizard({ eventType }) {
           division_count: 1,
           start_date: startDate || null,
           end_date: endDate || null,
-          discord_overall_webhook: discordWebhook || null,
           created_by: profile?.id,
         })
         .select()
         .single();
       if (evErr) throw evErr;
+      if (discordWebhook.trim()) await setEventWebhook(event.id, 'overall', null, discordWebhook);
 
       const { error: cfgErr } = await supabase.from('bingo_config').insert({
         event_id: event.id,
@@ -183,7 +184,6 @@ function BingoWizard({ eventType }) {
         game_subtitle: gameSubtitle || null,
         start_date: startDate || null,
         end_date: endDate || null,
-        discord_webhook_url: discordWebhook || null,
         ...lineValues,
       });
       if (cfgErr) throw cfgErr;
@@ -369,11 +369,11 @@ function HighScoreWizard() {
           event_type: 'high_score',
           status: 'active',
           division_count: 1,
-          discord_overall_webhook: overallWebhook || null,
           created_by: profile?.id,
         })
         .select().single();
       if (evErr) throw evErr;
+      if (overallWebhook.trim()) await setEventWebhook(ev.id, 'overall', null, overallWebhook);
 
       await upsertHSConfig(ev.id, {
         mode,
@@ -450,11 +450,11 @@ function BoardGameWizard() {
         .from('events')
         .insert({
           name, slug, event_type: 'board_game', status: 'active', division_count: 1,
-          discord_overall_webhook: overallWebhook || null,
           created_by: profile?.id,
         })
         .select().single();
       if (error) throw error;
+      if (overallWebhook.trim()) await setEventWebhook(ev.id, 'overall', null, overallWebhook);
 
       await supabase.from('board_game_config').insert({
         event_id: ev.id, track_length: 252, grid_columns: 18, score_divisor: 2,
@@ -552,12 +552,12 @@ function AllPlayWizard() {
         .from('events')
         .insert({
           name, slug, event_type: 'all_play', status: 'active',
-          discord_overall_webhook: overallWebhook || null,
           division_count: Number(numDivisions) || 1,
           created_by: profile?.id,
         })
         .select().single();
       if (error) throw error;
+      if (overallWebhook.trim()) await setEventWebhook(ev.id, 'overall', null, overallWebhook);
 
       const count = Number(numDivisions) || 1;
       await supabase.from('divisions').insert(
