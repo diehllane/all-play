@@ -10,6 +10,7 @@ import {
   createHSTeam, updateHSTeam, deleteHSTeam,
   createHSPlayer, updateHSPlayer, deleteHSPlayer,
 } from '../../lib/highscore';
+import { getEventWebhooks, setEventWebhook } from '../../lib/webhooks';
 
 const ACC = '#c62828';
 
@@ -189,6 +190,9 @@ export default function HighScoreEditPage() {
   // Category inline form
   const [newCat, setNewCat] = useState({ name: '', multiplier: 1 });
 
+  // Overall Discord webhook (stored in event_webhooks, runner/owner only)
+  const [overallWebhook, setOverallWebhook] = useState('');
+
   useEffect(() => { loadAll(); }, [eventId]);
 
   async function loadAll() {
@@ -207,6 +211,7 @@ export default function HighScoreEditPage() {
         getHSPlayers(eventId),
       ]);
       setConfig(cfg);
+      getEventWebhooks(eventId).then(w => setOverallWebhook(w.overall));
       setTeams(tm);
       setPlayers(pl);
 
@@ -245,6 +250,7 @@ export default function HighScoreEditPage() {
         start_date: cfgForm.start_date || null,
         end_date: cfgForm.end_date || null,
       });
+      await setEventWebhook(eventId, 'overall', null, overallWebhook);
       setMsg('Configuration saved.');
       await loadAll();
     } catch (e) {
@@ -556,6 +562,14 @@ export default function HighScoreEditPage() {
           <input value={cfgForm.title_image_url}
             onChange={e => setCfgForm(f => ({ ...f, title_image_url: e.target.value }))}
             style={s.input} placeholder="https://..." />
+
+          <label style={s.label}>Overall Discord Webhook (optional)</label>
+          <input value={overallWebhook}
+            onChange={e => setOverallWebhook(e.target.value)}
+            style={s.input} placeholder="https://discord.com/api/webhooks/..." />
+          <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>
+            Posts full standings on every day commit. Leave blank to disable. Per-team webhooks are on the Teams tab.
+          </div>
 
           <div style={{ marginTop: 20 }}>
             <button onClick={handleSaveConfig} disabled={saving} style={s.saveConfigBtn}>

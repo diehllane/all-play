@@ -130,6 +130,8 @@ export default function AllPlayEditPage() {
   const [newTeamDisplay, setNewTeamDisplay] = useState('')
   const [newTeamDivision, setNewTeamDivision] = useState('')
   const [newTeamWebhook, setNewTeamWebhook] = useState('')
+  const [overallWebhook, setOverallWebhook] = useState('')
+  const [savingWebhook, setSavingWebhook] = useState(false)
   const [newDivName, setNewDivName] = useState('')
 
   // Category form
@@ -159,6 +161,7 @@ export default function AllPlayEditPage() {
     ])
     // Webhook URLs live in event_webhooks (runner/owner only); merged in for display/export.
     const hooks = await getEventWebhooks(id)
+    setOverallWebhook(hooks.overall)
     setEvent(ev)
     setDivisions(divs || [])
     setTeams((teamsData || []).map(t => ({ ...t, discord_webhook_url: hooks.team[t.id] || '' })))
@@ -184,6 +187,19 @@ export default function AllPlayEditPage() {
     if (!confirm('Delete this division and all its teams?')) return
     await supabase.from('divisions').delete().eq('id', divId)
     await fetchAll()
+  }
+
+  // Overall Discord webhook
+  const handleSaveOverallWebhook = async () => {
+    setSavingWebhook(true)
+    try {
+      await setEventWebhook(id, 'overall', null, overallWebhook)
+      flash(overallWebhook.trim() ? 'Overall webhook saved.' : 'Overall webhook removed.')
+    } catch (e) {
+      flash(e.message, true)
+    } finally {
+      setSavingWebhook(false)
+    }
   }
 
   // ── Teams ─────────────────────────────────────────────
@@ -368,6 +384,22 @@ export default function AllPlayEditPage() {
         {/* ── Teams & Divisions ── */}
         {activeTab === 'teams' && (
           <div>
+            {/* Overall Discord webhook */}
+            <div className="card" style={{ marginBottom: '1.5rem' }}>
+              <div className="card-title">Overall Discord Webhook</div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input className="form-input" style={{ flex: '1 1 320px' }} value={overallWebhook}
+                  onChange={e => setOverallWebhook(e.target.value)}
+                  placeholder="https://discord.com/api/webhooks/..." />
+                <button className="btn btn-primary" onClick={handleSaveOverallWebhook} disabled={savingWebhook}>
+                  {savingWebhook ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 6 }}>
+                Posts standings on every day commit. Leave blank and save to disable.
+              </div>
+            </div>
+
             {/* Divisions */}
             <div className="card" style={{ marginBottom: '1.5rem' }}>
               <div className="card-title">Divisions</div>
