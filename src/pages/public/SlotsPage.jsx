@@ -7,6 +7,8 @@ import { purchaseStoreItem, setPrizePaid, getPlayerPurchaseCounts } from '../../
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
 const SPIN_COOLDOWN_SECS = 4;
+const JACKPOT_CPC = 34045;
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 const ALL_SYMBOLS = ['masterball','pokeball','greatball','ultraball','pikachu','eevee','rare_candy','potion','berry'];
 
@@ -143,6 +145,25 @@ export default function SlotsPage() {
   const [cooldownLeft, setCooldownLeft] = useState(0);
   const cooldownRef = React.useRef(null);
 
+  // Auto-spin: the checkbox state lives in both state (for rendering) and a ref
+  // (so the running loop sees an uncheck immediately instead of a stale closure).
+  const [autoSpin, setAutoSpinState] = useState(false);
+  const [autoRunning, setAutoRunning] = useState(false);
+  const [autoStopReason, setAutoStopReason] = useState(null);
+  const autoSpinRef = useRef(false);
+  const mountedRef = useRef(true);
+  const setAutoSpin = (val) => { autoSpinRef.current = val; setAutoSpinState(val); };
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      // Leaving the page stops auto-spin and kills the cooldown ticker
+      mountedRef.current = false;
+      autoSpinRef.current = false;
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
+    };
+  }, []);
+
   const [activeTab, setActiveTab] = useState('machine');
   const [purchaseLoading, setPurchaseLoading] = useState(null);
   const [purchaseMsg, setPurchaseMsg] = useState(null);
@@ -194,9 +215,11 @@ export default function SlotsPage() {
   }, [eventId]);
 
   const loadMyPlayer = useCallback(async () => {
-    if (!user) { setMyPlayer(null); return; }
+    if (!user) { setMyPlayer(null); return null; }
     const { data } = await supabase.from('slots_players').select('*').eq('event_id', eventId).eq('profile_id', user.id).maybeSingle();
     setMyPlayer(data);
+    // Returned so the auto-spin loop can read a fresh token balance (state would be stale inside the loop)
+    return data;
   }, [eventId, user]);
 
   const loadMyPurchaseCounts = useCallback(async (playerId, items) => {
@@ -245,11 +268,9 @@ export default function SlotsPage() {
     }, 1000);
   };
 
-  const handleSpin = async () => {
-    if (!user || !myPlayer) return;
-    if (myPlayer.slot_tokens < 1) { setSpinError('No tokens remaining.'); return; }
-    if (isSpinning || cooldownLeft > 0) return;
-
+  // One spin: call the edge function, run the reel animation, refresh the
+  // player's balance. Returns { result, tokens } on success, null on failure.
+  const performSpin = async (playerId) => {
     setIsSpinning(true);
     setSpinError(null);
     setLastOutcome(null);
@@ -262,7 +283,7 @@ export default function SlotsPage() {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/slots-spin`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event_id: eventId, player_id: myPlayer.id }),
+        body: JSON.stringify({ event_id: eventId, player_id: playerId }),
       });
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || 'Spin failed');
@@ -276,26 +297,72 @@ export default function SlotsPage() {
         ...prev,
       ].slice(0, 10));
 
-      await new Promise(r => setTimeout(r, 400));
+      await sleep(400);
       setReels(result.reels);
 
       setIsRevealing(true);
       setIsSpinning(false);
-      await new Promise(r => setTimeout(r, 800));
+      await sleep(800);
 
       setIsRevealing(false);
       setLastOutcome(result);
       setSpinState('result_shown');
 
-      await loadMyPlayer();
-      if (myPlayer) await loadRecentSpins(myPlayer.id);
-      await loadAll();
+      const fresh = await loadMyPlayer();
+      await loadRecentSpins(playerId);
+      return { result, tokens: fresh?.slot_tokens ?? 0 };
     } catch (e) {
       setSpinError(e.message);
       setSpinState('idle');
+      return null;
     } finally {
       setIsSpinning(false);
     }
+  };
+
+  // Keeps spinning on the same cadence as a manual player (one spin per
+  // SPIN_COOLDOWN_SECS) until tokens run out, a jackpot hits, a spin errors,
+  // the box is unchecked, or the player leaves the page.
+  const runAutoSpin = async (playerId) => {
+    setAutoRunning(true);
+    setAutoStopReason(null);
+    let reason = 'Auto-spin stopped.';
+    try {
+      while (autoSpinRef.current && mountedRef.current) {
+        const started = Date.now();
+        const out = await performSpin(playerId);
+        if (!out) { reason = 'Auto-spin stopped: spin error.'; break; }
+        if (out.tokens < 1) { reason = 'Auto-spin finished: out of tokens.'; break; }
+        if (out.result.payout_cpc >= JACKPOT_CPC) { reason = 'Auto-spin paused: JACKPOT!'; break; }
+        if (!autoSpinRef.current) break;
+        // Wait out the rest of the cooldown, with a short floor so each result is visible
+        await sleep(Math.max(SPIN_COOLDOWN_SECS * 1000 - (Date.now() - started), 600));
+      }
+    } finally {
+      if (mountedRef.current) {
+        setAutoSpin(false);
+        setAutoRunning(false);
+        setAutoStopReason(reason);
+        loadAll();
+      }
+    }
+  };
+
+  const handleSpin = async () => {
+    if (!user || !myPlayer) return;
+    // While auto-spin is running the button acts as STOP
+    if (autoRunning) { setAutoSpin(false); return; }
+    if (myPlayer.slot_tokens < 1) { setSpinError('No tokens remaining.'); return; }
+    if (isSpinning || cooldownLeft > 0) return;
+
+    if (autoSpinRef.current) {
+      await runAutoSpin(myPlayer.id);
+      return;
+    }
+
+    setAutoStopReason(null);
+    const out = await performSpin(myPlayer.id);
+    if (out) await loadAll();
   };
 
   const handlePurchase = async (item) => {
@@ -344,14 +411,19 @@ export default function SlotsPage() {
 
   const myCpc = myPlayer?.casino_prize_coins ?? 0;
   const isWin = lastOutcome && lastOutcome.payout_cpc > 0;
-  const isJackpot = lastOutcome?.payout_cpc >= 34045;
+  const isJackpot = lastOutcome?.payout_cpc >= JACKPOT_CPC;
   const isBusy = isSpinning || isRevealing;
 
-  const spinBtnLabel = isBusy
-    ? `${cooldownLeft > 0 ? cooldownLeft + 's' : '...'}`
-    : cooldownLeft > 0
-      ? `${cooldownLeft}s`
-      : 'SPIN (1 token)';
+  const spinBtnLabel = autoRunning
+    ? (autoSpin ? 'STOP AUTO-SPIN' : 'STOPPING...')
+    : isBusy
+      ? `${cooldownLeft > 0 ? cooldownLeft + 's' : '...'}`
+      : cooldownLeft > 0
+        ? `${cooldownLeft}s`
+        : autoSpin ? 'AUTO-SPIN' : 'SPIN (1 token)';
+  const spinBtnDisabled = autoRunning
+    ? !autoSpin
+    : (!user || !myPlayer || isBusy || myTokens < 1 || cooldownLeft > 0);
 
   return (
     <div style={{ ...styles.page, background: '#0a0a0f' }}>
@@ -443,17 +515,42 @@ export default function SlotsPage() {
               <div style={{ textAlign: 'center', paddingBottom: 20 }}>
                 <button
                   onClick={handleSpin}
-                  disabled={!user || !myPlayer || isBusy || myTokens < 1 || cooldownLeft > 0}
-                  title={!user ? 'Log in to spin' : !myPlayer ? 'Not enrolled' : myTokens < 1 ? 'No tokens' : 'Spin!'}
+                  disabled={spinBtnDisabled}
+                  title={autoRunning ? 'Stop after the current spin' : !user ? 'Log in to spin' : !myPlayer ? 'Not enrolled' : myTokens < 1 ? 'No tokens' : 'Spin!'}
                   style={{
                     ...styles.spinBtn,
-                    background: isBusy ? '#333' : cooldownLeft > 0 ? '#444' : theme,
-                    boxShadow: (isBusy || cooldownLeft > 0) ? 'none' : `0 0 20px ${theme}88`,
-                    cursor: (!user || !myPlayer || myTokens < 1 || isBusy || cooldownLeft > 0) ? 'not-allowed' : 'pointer',
-                    opacity: (!user || !myPlayer || myTokens < 1) ? 0.5 : 1,
+                    background: autoRunning ? '#555' : isBusy ? '#333' : cooldownLeft > 0 ? '#444' : theme,
+                    boxShadow: (autoRunning || isBusy || cooldownLeft > 0) ? 'none' : `0 0 20px ${theme}88`,
+                    cursor: spinBtnDisabled ? 'not-allowed' : 'pointer',
+                    opacity: (!autoRunning && (!user || !myPlayer || myTokens < 1)) ? 0.5 : 1,
                   }}>
                   {spinBtnLabel}
                 </button>
+
+                {user && myPlayer && (
+                  <div style={styles.autoRow}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: myTokens < 1 && !autoRunning ? 'not-allowed' : 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={autoSpin}
+                        disabled={myTokens < 1 && !autoRunning}
+                        onChange={e => { setAutoSpin(e.target.checked); if (e.target.checked) setAutoStopReason(null); }}
+                        style={{ accentColor: theme, width: 16, height: 16 }}
+                      />
+                      Auto-spin until out of tokens
+                    </label>
+                    {autoRunning && (
+                      <div style={{ fontSize: 12, color: theme, marginTop: 6 }}>
+                        {autoSpin
+                          ? `Auto-spinning · ${myTokens.toLocaleString()} token${myTokens === 1 ? '' : 's'} left`
+                          : 'Stopping after this spin...'}
+                      </div>
+                    )}
+                    {!autoRunning && autoStopReason && (
+                      <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>{autoStopReason}</div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -659,8 +756,8 @@ export default function SlotsPage() {
                                 <span key={j}>{getSymbolImg(s, 18)}</span>
                               ))}
                             </div>
-                            <span style={{ color: best.payout_cpc >= 34045 ? '#FFD700' : '#4CAF50', fontWeight: 700 }}>
-                              {best.payout_cpc >= 34045 ? 'JACKPOT' : `${best.payout_cpc.toLocaleString()} CPC`}
+                            <span style={{ color: best.payout_cpc >= JACKPOT_CPC ? '#FFD700' : '#4CAF50', fontWeight: 700 }}>
+                              {best.payout_cpc >= JACKPOT_CPC ? 'JACKPOT' : `${best.payout_cpc.toLocaleString()} CPC`}
                             </span>
                           </div>
                         ) : (
@@ -804,6 +901,7 @@ const styles = {
   reelWindow: { display: 'flex', justifyContent: 'center', gap: 12, padding: '24px 20px 12px' },
   payline: { height: 2, borderTop: '1px dashed', margin: '0 20px', opacity: 0.4 },
   resultBanner: { height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  autoRow: { marginTop: 14, fontSize: 13, color: '#ccc' },
   spinBtn: { padding: '14px 48px', fontSize: 16, fontWeight: 800, color: '#fff', border: 'none', borderRadius: 30, letterSpacing: 1, transition: 'all 0.2s' },
   recentWrap: { width: '100%', maxWidth: 520, background: '#111', borderRadius: 10, padding: 16 },
   spinRow: { display: 'flex', alignItems: 'center', gap: 12, padding: '6px 0', borderBottom: '1px solid #1a1a1a' },
