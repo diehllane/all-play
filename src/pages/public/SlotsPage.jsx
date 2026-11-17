@@ -392,8 +392,11 @@ export default function SlotsPage() {
   };
 
   const getSymbolImg = (sym, size = 48) => {
-    const src = SYMBOL_IMAGES[sym];
-    if (src) return <img src={src} alt={sym} style={{ width: size, height: size, objectFit: 'contain' }} />;
+    const src = config?.symbol_images?.[sym] || SYMBOL_IMAGES[sym];
+    if (src) return (
+      <img src={src} alt={sym} style={{ width: size, height: size, objectFit: 'contain' }}
+        onError={e => { const fb = SYMBOL_IMAGES[sym]; if (fb && !e.currentTarget.dataset.fallback) { e.currentTarget.dataset.fallback = '1'; e.currentTarget.src = fb; } }} />
+    );
     return <span style={{ fontSize: size * 0.8, lineHeight: 1 }}>?</span>;
   };
 
