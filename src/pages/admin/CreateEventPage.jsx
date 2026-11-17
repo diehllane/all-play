@@ -789,7 +789,7 @@ function SlotsWizard() {
       {wizStep === 3 && (
         <div style={s.card}>
           <h2 style={s.cardTitle}>Symbol Images <span style={{ color: '#666', fontSize: 13, fontWeight: 400 }}>(optional — set now or later in Edit)</span></h2>
-          <p style={s.hint}>Provide direct image URLs for each reel symbol. Leave blank to use emoji fallbacks.</p>
+          <p style={s.hint}>Provide direct image URLs for each reel symbol. Leave blank to use the default images.</p>
           {SYMBOLS.map(sym => (
             <div key={sym}>
               <label style={s.label}>{SYMBOL_LABELS[sym]}</label>

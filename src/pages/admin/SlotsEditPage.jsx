@@ -169,6 +169,7 @@ export default function SlotsEditPage() {
         min_tokens_per_day: cfg.min_tokens_per_day ?? 0,
         max_tokens_per_day: cfg.max_tokens_per_day ?? 0,
         cpc_per_token: cfg.cpc_per_token ?? 5,
+        symbol_images: Object.fromEntries(ALL_SYMBOLS.map(sym => [sym, cfg.symbol_images?.[sym] || ''])),
         discord_webhook_url: (await getEventWebhooks(eventId)).overall,
       });
       setCategories(catRes.data || []);
@@ -215,6 +216,7 @@ export default function SlotsEditPage() {
       min_tokens_per_day: parseInt(form.min_tokens_per_day) || 0,
       max_tokens_per_day: parseInt(form.max_tokens_per_day) || 0,
       cpc_per_token: parseInt(form.cpc_per_token) || 5,
+      symbol_images: Object.fromEntries(ALL_SYMBOLS.map(sym => [sym, form.symbol_images?.[sym]?.trim() || null])),
     }).eq('event_id', eventId);
     let whErr = null;
     if (!e) {
@@ -481,16 +483,36 @@ export default function SlotsEditPage() {
                 <input value={form.banner_image_url} onChange={e => set('banner_image_url', e.target.value)} style={styles.input} placeholder="https://…" />
               </Field>
               <div style={{ marginBottom: 16 }}>
-                <label style={{ display: 'block', fontSize: 12, color: '#888', marginBottom: 8, fontWeight: 600 }}>Reel Symbols</label>
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                  {ALL_SYMBOLS.map(sym => (
-                    <div key={sym} style={{ textAlign: 'center', opacity: 0.7 }}>
-                      <img src={SYMBOL_IMAGES[sym]} alt={sym} style={{ width: 36, height: 36, objectFit: 'contain', display: 'block' }} />
-                      <div style={{ fontSize: 10, color: '#666', marginTop: 3 }}>{SYMBOL_LABELS[sym]}</div>
-                    </div>
-                  ))}
+                <label style={{ display: 'block', fontSize: 12, color: '#888', marginBottom: 4, fontWeight: 600 }}>Reel Symbols</label>
+                <div style={{ fontSize: 11, opacity: 0.5, marginBottom: 10 }}>Paste a direct image URL to replace a symbol for this event only. Leave blank to use the default image. Changes apply after Save.</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {ALL_SYMBOLS.map(sym => {
+                    const custom = form.symbol_images?.[sym]?.trim() || '';
+                    return (
+                      <div key={sym} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <img src={custom || SYMBOL_IMAGES[sym]} alt={sym}
+                          title={custom ? 'If this stays faded, the URL is not loading' : undefined}
+                          onError={e => { e.currentTarget.style.opacity = 0.2; }}
+                          onLoad={e => { e.currentTarget.style.opacity = 1; }}
+                          style={{ width: 36, height: 36, objectFit: 'contain', flex: 'none' }} />
+                        <div style={{ width: 84, fontSize: 12, color: custom ? '#fff' : '#888', flex: 'none' }}>
+                          {SYMBOL_LABELS[sym]}
+                          {custom && <div style={{ fontSize: 10, color: theme }}>custom</div>}
+                        </div>
+                        <input value={form.symbol_images?.[sym] || ''}
+                          onChange={e => setForm(f => ({ ...f, symbol_images: { ...f.symbol_images, [sym]: e.target.value } }))}
+                          style={styles.input} placeholder="Default image" />
+                        {custom && (
+                          <button type="button" title="Revert to default"
+                            onClick={() => setForm(f => ({ ...f, symbol_images: { ...f.symbol_images, [sym]: '' } }))}
+                            style={{ background: 'none', border: '1px solid #444', color: '#aaa', borderRadius: 4, padding: '4px 8px', cursor: 'pointer', flex: 'none' }}>
+                            Reset
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-                <div style={{ fontSize: 11, opacity: 0.35, marginTop: 8 }}>Symbol images are shared across all events and managed in the repo at public/images/slots/.</div>
               </div>
               <Field label="Theme Color">
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
