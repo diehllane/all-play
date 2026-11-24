@@ -13,6 +13,8 @@ export async function exportSlotsXLSX(eventId, eventName) {
     { data: storeItems },
     { data: payoutTable },
     { data: auditLog },
+    { data: scratchGames },
+    { data: scratchTickets },
   ] = await Promise.all([
     supabase.from('slots_players').select('*').eq('event_id', eventId).order('display_name'),
     supabase.from('slots_categories').select('*').eq('event_id', eventId).order('sort_order'),
@@ -31,6 +33,10 @@ export async function exportSlotsXLSX(eventId, eventName) {
     supabase.from('slots_audit_log')
       .select('*, profiles(email)')
       .eq('event_id', eventId).order('created_at', { ascending: false }).limit(2000),
+    supabase.from('slots_scratch_games').select('*, slots_scratch_tiers(*)').eq('event_id', eventId).order('sort_order'),
+    supabase.from('slots_scratch_tickets')
+      .select('*, slots_players(display_name)')
+      .eq('event_id', eventId).order('purchased_at'),
   ]);
 
   const wb = XLSX.utils.book_new();
@@ -105,10 +111,11 @@ export async function exportSlotsXLSX(eventId, eventName) {
   // ── Sheet 5: Prize Board ───────────────────────────────────────────────────
   const prizeRows = (prizeBoard ?? []).map(p => ({
     'Player':       p.slots_players?.display_name ?? '--',
-    'Prize':        p.slots_store_items?.label ?? '--',
+    'Prize':        p.slots_store_items?.label ?? p.prize_label ?? '--',
+    'Source':       p.store_item_id ? 'Store' : 'Scratch-off',
     'Cost (CPC)':   p.cost_cpc_at_purchase,
     'Purchased At': new Date(p.purchased_at).toLocaleString(),
-    'On Board':     p.slots_store_items?.show_on_prize_board !== false ? 'Yes' : 'No',
+    'On Board':     !p.store_item_id || p.slots_store_items?.show_on_prize_board !== false ? 'Yes' : 'No',
     'Fulfilled':    p.paid ? 'Yes' : 'No',
     'Fulfilled At': p.paid_at ? new Date(p.paid_at).toLocaleString() : '--',
   }));
@@ -127,6 +134,44 @@ export async function exportSlotsXLSX(eventId, eventName) {
     'Active':            s.is_active ? 'Yes' : 'No',
   }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(storeItemRows), 'Store Items');
+
+  // ── Sheet 5c: Scratch-Offs (one row per prize tier) ──────────────────────────
+  const scratchRows = (scratchGames ?? []).flatMap(g => {
+    const tiers = [...(g.slots_scratch_tiers ?? [])].sort((a, b) => a.tier_rank - b.tier_rank);
+    const prizes = tiers.reduce((sum, t) => sum + t.prize_count, 0);
+    return tiers.map(t => ({
+      'Game':              g.label,
+      'Ticket Price (CPC)': g.cost_cpc,
+      'Total Tickets':     g.total_tickets,
+      'Tickets Sold':      g.total_tickets - g.tickets_remaining,
+      'Overall Odds':      prizes ? `1 in ${(g.total_tickets / prizes).toFixed(2)}` : '--',
+      'Tier':              t.tier_rank === 1 ? 'Grand Prize' : `Tier ${t.tier_rank}`,
+      'Prize':             t.prize_label,
+      'Icon':              t.icon_url || t.icon,
+      'Prize Count':       t.prize_count,
+      'Prizes Won':        t.prize_count - t.prizes_remaining,
+      'Tier Odds':         `1 in ${(g.total_tickets / t.prize_count).toFixed(2)}`,
+      'Active':            g.is_active ? 'Yes' : 'No',
+    }));
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(scratchRows), 'Scratch-Offs');
+
+  // ── Sheet 5d: Scratch Tickets Sold ─────────────────────────────────────────
+  const tierLabel = {};
+  const gameLabel = {};
+  for (const g of scratchGames ?? []) {
+    gameLabel[g.id] = g.label;
+    for (const t of g.slots_scratch_tiers ?? []) tierLabel[t.id] = t.prize_label;
+  }
+  const ticketRows = (scratchTickets ?? []).map(t => ({
+    'Player':       t.slots_players?.display_name ?? '--',
+    'Game':         gameLabel[t.game_id] ?? '--',
+    'Cost (CPC)':   t.cost_cpc_at_purchase,
+    'Result':       t.tier_id ? `WIN: ${tierLabel[t.tier_id] ?? 'Prize'}` : 'No win',
+    'Purchased At': new Date(t.purchased_at).toLocaleString(),
+    'Scratched At': t.scratched_at ? new Date(t.scratched_at).toLocaleString() : 'Not yet',
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ticketRows), 'Scratch Tickets');
 
   // ── Sheet 6: Pay Table ─────────────────────────────────────────────────────
   const payoutRows = (payoutTable ?? []).map(r => ({
