@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { purchaseStoreItem, setPrizePaid, getPlayerPurchaseCounts } from '../../lib/slots';
+import ScratchOffStore from '../../components/ScratchOffStore';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
@@ -400,6 +401,11 @@ export default function SlotsPage() {
     return <span style={{ fontSize: size * 0.8, lineHeight: 1 }}>?</span>;
   };
 
+  // Symbol image with this event's custom overrides, for the scratch-off tickets
+  const symbolImages = config?.symbol_images;
+  const symbolSrc = useCallback((sym) => symbolImages?.[sym] || SYMBOL_IMAGES[sym], [symbolImages]);
+  const refreshBalances = useCallback(async () => { await Promise.all([loadMyPlayer(), loadAll()]); }, [loadMyPlayer, loadAll]);
+
   const theme = config?.theme_color || '#c62828';
 
   if (loading) return <div style={styles.center}>Loading...</div>;
@@ -598,6 +604,9 @@ export default function SlotsPage() {
                 {purchaseMsg}
               </div>
             )}
+            <ScratchOffStore eventId={eventId} user={user} myPlayer={myPlayer} myCpc={myCpc} theme={theme}
+              symbolSrc={symbolSrc} onBalanceChange={refreshBalances} />
+            {storeItems.length > 0 && <div style={{ fontSize: 16, fontWeight: 800, color: theme, marginBottom: 12 }}>🛒 Prizes</div>}
             {storeItems.length === 0 && <div style={styles.empty}>No items in the store yet.</div>}
             <div style={styles.storeGrid}>
               {storeItems.map(item => {
@@ -680,8 +689,8 @@ export default function SlotsPage() {
                   {boardEntries.map(entry => (
                     <tr key={entry.id} style={{ opacity: entry.paid ? 0.5 : 1 }}>
                       <td style={styles.td}>{entry.slots_players?.display_name || '--'}</td>
-                      <td style={styles.td}>{entry.slots_store_items?.label || '--'}</td>
-                      <td style={styles.td}>{entry.cost_cpc_at_purchase} CPC</td>
+                      <td style={styles.td}>{entry.scratch_ticket_id || (!entry.store_item_id && entry.prize_label) ? <span title="Won on a scratch-off ticket">🎫 {entry.prize_label}</span> : (entry.slots_store_items?.label || entry.prize_label || '--')}</td>
+                      <td style={styles.td}>{entry.cost_cpc_at_purchase} CPC{!entry.store_item_id && <span style={{ fontSize: 10, opacity: 0.5 }}> ticket</span>}</td>
                       <td style={styles.td}>{new Date(entry.purchased_at).toLocaleDateString()}</td>
                       <td style={styles.td}><span style={{ color: entry.paid ? '#4CAF50' : '#888', fontSize: 12 }}>{entry.paid ? 'Fulfilled' : 'Pending'}</span></td>
                       {canManage && <td style={styles.td}><button onClick={() => handleMarkPaid(entry, !entry.paid)} style={{ ...styles.smallBtn, background: entry.paid ? '#555' : '#4CAF50' }}>{entry.paid ? 'Unmark' : 'Fulfill'}</button></td>}
