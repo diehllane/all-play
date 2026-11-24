@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { getEventWebhooks, setEventWebhook } from '../../lib/webhooks';
+import ScratchOffEditor from '../../components/ScratchOffEditor';
 
 const ALL_SYMBOLS = ['masterball','pokeball','greatball','ultraball','pikachu','eevee','rare_candy','potion','berry'];
 const SYMBOL_LABELS = { masterball:'Masterball', pokeball:'Pokeball', greatball:'Greatball', ultraball:'Ultraball', pikachu:'Pikachu', eevee:'Eevee', rare_candy:'Rare Candy', potion:'Potion', berry:'Berry' };
@@ -445,7 +446,7 @@ export default function SlotsEditPage() {
   const enrolledProfileIds = new Set(players.map(p => p.profile_id).filter(Boolean));
   const availableProfiles = allProfiles.filter(prof => !enrolledProfileIds.has(prof.id));
 
-  const TABS = [['config','⚙️ Configuration'],['categories','🎯 Categories'],['players','👥 Players'],['store','🛒 Store Items']];
+  const TABS = [['config','⚙️ Configuration'],['categories','🎯 Categories'],['players','👥 Players'],['store','🛒 Store Items'],['scratch','🎫 Scratch-Offs']];
 
   return (
     <div style={styles.page}>
@@ -874,6 +875,11 @@ export default function SlotsEditPage() {
             </table>
             </div>
           </div>
+        )}
+
+        {/* ─── Scratch-Offs ─── */}
+        {activeTab === 'scratch' && (
+          <ScratchOffEditor eventId={eventId} theme={theme} storeItems={storeItems} />
         )}
       </div>
     </div>

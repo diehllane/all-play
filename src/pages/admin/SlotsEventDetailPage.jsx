@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { awardTokens, awardCPC } from '../../lib/slots';
 import { exportSlotsXLSX } from '../../lib/slotsExport';
 import { getWebhookTargets, hasTarget } from '../../lib/webhooks';
+import ScratchOffAdminPanel from '../../components/ScratchOffAdminPanel';
 
 export default function SlotsEventDetailPage() {
   const { eventId } = useParams();
@@ -159,6 +160,7 @@ export default function SlotsEventDetailPage() {
     ['cpc',       'Award CPC'],
     ['store',     'Store'],
     ['prizes',    'Prizes'],
+    ['scratch',   'Scratch-Offs'],
     ['commits',   'Commits'],
     ['audit',     'Audit'],
   ];
@@ -412,8 +414,8 @@ export default function SlotsEventDetailPage() {
                 {prizeBoard.map(entry => (
                   <tr key={entry.id} style={{ opacity: entry.paid ? 0.5 : 1 }}>
                     <td style={s.td}>{entry.slots_players?.display_name}</td>
-                    <td style={s.td}>{entry.slots_store_items?.label}</td>
-                    <td style={s.tdNum}>C {entry.cost_cpc_at_purchase}</td>
+                    <td style={s.td}>{!entry.store_item_id ? <span title="Won on a scratch-off ticket">🎫 {entry.prize_label}</span> : entry.slots_store_items?.label}</td>
+                    <td style={s.tdNum}>C {entry.cost_cpc_at_purchase}{!entry.store_item_id && <span style={{ fontSize: 10, opacity: 0.5 }}> ticket</span>}</td>
                     <td style={s.td}>{new Date(entry.purchased_at).toLocaleDateString()}</td>
                     <td style={s.td}>
                       {entry.slots_store_items?.show_on_prize_board !== false
@@ -428,6 +430,11 @@ export default function SlotsEventDetailPage() {
               </tbody>
             </table>
           </div>
+        )}
+
+        {/* ── Scratch-Offs ── */}
+        {activeTab === 'scratch' && (
+          <ScratchOffAdminPanel eventId={eventId} theme={theme} actorId={user.id} onChanged={loadAll} />
         )}
 
         {/* ── Commits ── */}
