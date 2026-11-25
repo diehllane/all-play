@@ -20,6 +20,8 @@ function blankDraft() {
     total_tickets: '',
     max_per_player: '',
     is_active: true,
+    sell_in_store: true,
+    award_category_id: '',
     tiers: [
       { prize_label: '', prize_count: 1, icon: 'masterball', icon_url: '', iconAuto: true },
       { prize_label: '', prize_count: '', icon: 'berry', icon_url: '', iconAuto: true },
@@ -46,6 +48,7 @@ export default function ScratchOffEditor({ eventId, theme, storeItems = [] }) {
   const [draftSold, setDraftSold] = useState(0);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [categories, setCategories] = useState([]);
 
   const flash = (text, isError = false) => { setMsg({ text, isError }); setTimeout(() => setMsg(null), 5000); };
 
@@ -65,6 +68,13 @@ export default function ScratchOffEditor({ eventId, theme, storeItems = [] }) {
 
   useEffect(() => { load(); }, [load]);
 
+  // Scoring categories, for "award a ticket when this category is scored"
+  useEffect(() => {
+    supabase.from('slots_categories').select('id, label, is_active').eq('event_id', eventId).order('sort_order')
+      .then(({ data }) => setCategories(data ?? []));
+  }, [eventId]);
+  const categoryLabel = (id) => categories.find(c => c.id === id)?.label ?? 'a removed category';
+
   const topStoreItem = [...storeItems].filter(i => i.is_active !== false && !i.pays_out_slot_tokens).sort((a, b) => b.cost_cpc - a.cost_cpc)[0];
 
   const startNew = () => { setDraft(blankDraft()); setDraftSold(0); };
@@ -81,6 +91,8 @@ export default function ScratchOffEditor({ eventId, theme, storeItems = [] }) {
       total_tickets: g.total_tickets,
       max_per_player: g.max_per_player ?? '',
       is_active: g.is_active,
+      sell_in_store: g.sell_in_store !== false,
+      award_category_id: g.award_category_id || '',
       tiers: g.tiers.map((t, i) => ({
         id: t.id,
         prize_label: t.prize_label,
@@ -110,7 +122,7 @@ export default function ScratchOffEditor({ eventId, theme, storeItems = [] }) {
     setSaving(true);
     try {
       const res = await saveScratchGame(eventId, draft);
-      flash(res?.locked ? 'Saved. Tickets have already sold, so only names, icons, limits and on/off were changed.' : 'Scratch-off saved.');
+      flash(res?.locked ? 'Saved. Tickets were already given out, so the pool and odds were left as they were; names, icons, limits, distribution and on/off were updated.' : 'Scratch-off saved.');
       setDraft(null);
       await load();
     } catch (e) {
@@ -128,7 +140,7 @@ export default function ScratchOffEditor({ eventId, theme, storeItems = [] }) {
   const handleDelete = async (g) => {
     const sold = soldByGame[g.id] ?? 0;
     const warning = sold > 0
-      ? `Delete "${g.label}"? ${sold} ticket(s) have been sold. Their records will be removed (prizes already on the Prize Board stay). This cannot be undone.`
+      ? `Delete "${g.label}"? ${sold} ticket(s) have been given out. Their records will be removed (prizes already on the Prize Board stay). This cannot be undone.`
       : `Delete "${g.label}"? This cannot be undone.`;
     if (!window.confirm(warning)) return;
     try { await deleteScratchGame(g.id); flash('Scratch-off deleted.'); await load(); }
@@ -150,20 +162,49 @@ export default function ScratchOffEditor({ eventId, theme, storeItems = [] }) {
           <div style={st.cardTitle}>{draft.id ? 'Edit Scratch-Off' : 'New Scratch-Off'}</div>
           {locked && (
             <div style={st.lockNote}>
-              🔒 {draftSold} ticket{draftSold === 1 ? '' : 's'} already sold. Price, ticket count and prize counts are locked so the odds players bought into can't change. You can still rename things, swap icons, change the per-player limit, or turn sales on/off.
+              🔒 {draftSold} ticket{draftSold === 1 ? '' : 's'} already given out. Price, ticket count and prize counts are locked so the odds players got can't change. You can still rename things, swap icons, change the per-player limit, change how tickets are handed out, or turn the game on/off.
             </div>
           )}
 
           <div style={st.grid2}>
             <L label="Ticket name"><input value={draft.label} onChange={e => setField('label', e.target.value)} style={st.input} /></L>
-            <L label="Price (CPC per ticket)"><input type="number" min="0" disabled={locked} value={draft.cost_cpc} onChange={e => setField('cost_cpc', e.target.value)} style={st.input} /></L>
+            <L label={draft.sell_in_store ? 'Price (CPC per ticket)' : 'Price (not sold in store)'}><input type="number" min="0" disabled={(locked && Number(draft.cost_cpc) > 0) || !draft.sell_in_store} value={draft.sell_in_store ? draft.cost_cpc : ''} placeholder={draft.sell_in_store ? '' : '—'} onChange={e => setField('cost_cpc', e.target.value)} style={st.input} /></L>
             <L label="Total tickets in the pool"><input type="number" min="1" disabled={locked} value={draft.total_tickets} onChange={e => setField('total_tickets', e.target.value)} style={st.input} /></L>
             <L label="Max per player (blank = unlimited)"><input type="number" min="1" value={draft.max_per_player} onChange={e => setField('max_per_player', e.target.value)} style={st.input} /></L>
           </div>
           <L label="Description (optional)"><input value={draft.description} onChange={e => setField('description', e.target.value)} style={st.input} placeholder="e.g. Match 3 to win! Grand prize: Shiny Legend of your choice" /></L>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#aaa', margin: '4px 0 16px' }}>
-            <input type="checkbox" checked={draft.is_active} onChange={e => setField('is_active', e.target.checked)} /> On sale in the store
-          </label>
+          <div style={st.howBox}>
+            <div style={{ fontSize: 12, color: '#888', fontWeight: 600, marginBottom: 8 }}>How players get tickets</div>
+            <label style={st.check}>
+              <input type="checkbox" checked={draft.sell_in_store} onChange={e => setField('sell_in_store', e.target.checked)} />
+              Sold in the Store for CPC
+            </label>
+            <label style={{ ...st.check, alignItems: 'flex-start' }}>
+              <input type="checkbox" checked={!!draft.award_category_id}
+                onChange={e => setField('award_category_id', e.target.checked ? (categories.find(c => c.is_active !== false)?.id ?? '') : '')}
+                style={{ marginTop: 3 }} />
+              <span style={{ flex: 1 }}>
+                Free ticket when a scoring category is scored
+                {!!draft.award_category_id && (
+                  <select value={draft.award_category_id} onChange={e => setField('award_category_id', e.target.value)} style={{ ...st.select, display: 'block', marginTop: 6, width: '100%' }}>
+                    {categories.map(c => <option key={c.id} value={c.id} style={st.option}>{c.label}{c.is_active === false ? ' (inactive)' : ''}</option>)}
+                  </select>
+                )}
+                {!!draft.award_category_id && (
+                  <span style={{ display: 'block', fontSize: 11, color: '#777', marginTop: 6 }}>
+                    When a day is committed, each player who scored this category gets 1 ticket per count, up to the per-player max.
+                    Tip: for a once-per-person quest set <b>Max per player</b> to 1 and <b>Total tickets</b> to the number of people who could finish it.
+                    If the pool runs out, later finishers get nothing; if not everyone finishes, unclaimed tickets (and any prize on them) stay unclaimed.
+                  </span>
+                )}
+                {categories.length === 0 && <span style={{ display: 'block', fontSize: 11, color: '#f0a020', marginTop: 4 }}>This event has no scoring categories yet.</span>}
+              </span>
+            </label>
+            <label style={{ ...st.check, marginBottom: 0 }}>
+              <input type="checkbox" checked={draft.is_active} onChange={e => setField('is_active', e.target.checked)} />
+              Active (switch off to stop selling and awarding)
+            </label>
+          </div>
 
           <div style={{ ...st.cardTitle, fontSize: 13, marginTop: 8 }}>Prize tiers <span style={{ fontWeight: 400, color: '#666' }}>— top row is the grand prize</span></div>
           {topStoreItem && (
@@ -232,7 +273,7 @@ export default function ScratchOffEditor({ eventId, theme, storeItems = [] }) {
               <Stat label="Overall odds of winning" value={formatOneIn(odds.overall)} color="#4CAF50" />
               <Stat label="Winning tickets" value={odds.totalPrizes.toLocaleString()} />
               <Stat label="Losing tickets" value={Number.isFinite(odds.losers) && odds.losers >= 0 ? odds.losers.toLocaleString() : '—'} />
-              <Stat label="CPC taken in if all sell" value={revenue ? `${revenue.toLocaleString()} CPC` : '—'} color="#d4af37" />
+              {draft.sell_in_store && <Stat label="CPC taken in if all sell" value={revenue ? `${revenue.toLocaleString()} CPC` : '—'} color="#d4af37" />}
             </div>
             <div style={{ fontSize: 11, color: '#666', marginTop: 10 }}>
               Odds are exact: the pool works like a printed roll of scratchers. Every ticket drawn comes out of what's left, so all {odds.totalPrizes} prizes are guaranteed to be in the pool until someone wins them.
@@ -262,7 +303,7 @@ export default function ScratchOffEditor({ eventId, theme, storeItems = [] }) {
         <button onClick={startNew} style={{ ...st.primaryBtn, background: theme }}>+ New Scratch-Off</button>
       </div>
       <div style={{ fontSize: 12, color: '#666', marginBottom: 16 }}>
-        Scratch-off tickets show up at the top of the public Store tab. Players buy them with CPC, scratch the 9 boxes, and win if 3 match. Wins go straight to the Prize Board to be fulfilled.
+        Scratch-off tickets show up at the top of the public Store tab. Players buy them with CPC and/or earn them by scoring a category you pick, scratch the 9 boxes, and win if 3 match. Wins go straight to the Prize Board to be fulfilled.
       </div>
 
       {games.length === 0 && <div style={{ color: '#555', fontSize: 13, padding: '16px 0' }}>No scratch-offs yet.</div>}
@@ -277,16 +318,17 @@ export default function ScratchOffEditor({ eventId, theme, storeItems = [] }) {
                 <div style={{ fontWeight: 700, fontSize: 15, color: '#fff' }}>🎫 {g.label}</div>
                 {g.description && <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{g.description}</div>}
                 <div style={{ fontSize: 12, color: '#aaa', marginTop: 6, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                  <span style={{ color: '#d4af37' }}>{g.cost_cpc.toLocaleString()} CPC</span>
-                  <span>{sold.toLocaleString()} / {g.total_tickets.toLocaleString()} sold</span>
+                  {g.sell_in_store !== false && <span style={{ color: '#d4af37' }}>{g.cost_cpc.toLocaleString()} CPC</span>}
+                  {g.award_category_id && <span style={{ color: '#ce93d8' }}>🎁 Earned: {categoryLabel(g.award_category_id)}</span>}
+                  <span>{sold.toLocaleString()} / {g.total_tickets.toLocaleString()} given out</span>
                   <span style={{ color: '#4CAF50' }}>Overall {formatOneIn(odds.overall)}</span>
                   {g.max_per_player && <span style={{ color: '#90CAF9' }}>Max {g.max_per_player}/player</span>}
-                  <span style={{ color: g.is_active ? '#4ade80' : '#888' }}>{g.is_active ? 'On sale' : 'Off'}</span>
+                  <span style={{ color: g.is_active ? '#4ade80' : '#888' }}>{g.is_active ? 'Active' : 'Off'}</span>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <button onClick={() => startEdit(g)} style={{ ...st.ghostBtn, color: '#90CAF9' }}>Edit</button>
-                <button onClick={() => handleToggle(g)} style={st.ghostBtn}>{g.is_active ? 'Stop sales' : 'Start sales'}</button>
+                <button onClick={() => handleToggle(g)} style={st.ghostBtn}>{g.is_active ? 'Switch off' : 'Switch on'}</button>
                 <button onClick={() => handleDelete(g)} style={{ ...st.ghostBtn, color: '#ef5350', borderColor: '#4a1010' }}>Delete</button>
               </div>
             </div>
@@ -352,5 +394,7 @@ const st = {
   ghostBtn: { background: 'none', border: '1px solid #333', color: '#aaa', borderRadius: 6, padding: '6px 12px', fontSize: 12, cursor: 'pointer' },
   primaryBtn: { border: 'none', color: '#fff', borderRadius: 6, padding: '8px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer' },
   oddsBox: { background: '#0b1a0f', border: '1px solid #1d3a24', borderRadius: 8, padding: '12px 16px', marginTop: 16 },
+  howBox: { background: '#0d0d14', border: '1px solid #22223a', borderRadius: 8, padding: '12px 14px', margin: '4px 0 16px' },
+  check: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#ccc', marginBottom: 10, cursor: 'pointer' },
   lockNote: { background: '#2a2208', border: '1px solid #5a4a10', color: '#e8c860', borderRadius: 6, padding: '10px 12px', fontSize: 12, marginBottom: 14 },
 };

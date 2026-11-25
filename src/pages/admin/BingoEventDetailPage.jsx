@@ -1,14 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { useAuth } from '../../contexts/AuthContext';
+import { useEventPermissions } from '../../contexts/AuthContext';
 import { exportBingoXLSX } from '../../lib/bingoExport';
 
 export default function BingoEventDetailPage() {
   const { eventId } = useParams();
   const navigate = useNavigate();
-  const { profile } = useAuth();
-  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
+  
+  const { canManage } = useEventPermissions();
 
   const [event, setEvent] = useState(null);
   const [config, setConfig] = useState(null);

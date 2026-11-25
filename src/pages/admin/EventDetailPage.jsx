@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { useAuth } from '../../contexts/AuthContext'
+import { useAuth, useEventPermissions } from '../../contexts/AuthContext'
 import { sortStandings, generateWinnersBracket, generateLosersBracket } from '../../lib/scoring'
 import { buildScheduleRows } from '../../lib/schedule'
 import { logAudit } from '../../lib/audit'
@@ -24,7 +24,7 @@ export default function EventDetailPage() {
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [activeTab, setActiveTab] = useState('overview')
 
-  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner'
+  const { canManage } = useEventPermissions();
 
   useEffect(() => { fetchAll() }, [id])
 

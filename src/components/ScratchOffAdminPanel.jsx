@@ -75,8 +75,9 @@ export default function ScratchOffAdminPanel({ eventId, theme, actorId, onChange
             <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
               <div style={{ fontWeight: 700, color: '#fff' }}>🎫 {g.label} {!g.is_active && <span style={{ fontSize: 11, color: '#888' }}>(sales stopped)</span>}</div>
               <div style={{ fontSize: 12, color: '#aaa', display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-                <span>{sold.toLocaleString()} / {g.total_tickets.toLocaleString()} sold</span>
-                <span style={{ color: '#d4af37' }}>{(sold * g.cost_cpc).toLocaleString()} CPC taken in</span>
+                <span>{sold.toLocaleString()} / {g.total_tickets.toLocaleString()} given out</span>
+                <span>🛒 {gameTickets.filter(t => t.source !== 'award').length} bought · 🎁 {gameTickets.filter(t => t.source === 'award').length} earned</span>
+                {g.sell_in_store !== false && <span style={{ color: '#d4af37' }}>{gameTickets.filter(t => t.source !== 'award').reduce((n, t) => n + t.cost_cpc_at_purchase, 0).toLocaleString()} CPC taken in</span>}
                 <span style={{ color: '#4CAF50' }}>Overall {formatOneIn(odds.overall)}</span>
                 <span>{gameTickets.filter(t => !t.scratched_at).length} unscratched</span>
               </div>
@@ -117,7 +118,7 @@ export default function ScratchOffAdminPanel({ eventId, theme, actorId, onChange
             </div>
           </div>
           <table style={s.table}>
-            <thead><tr>{['Bought', 'Player', 'Game', 'Result', 'Scratched'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
+            <thead><tr>{['Issued', 'Player', 'Game', 'How', 'Result', 'Scratched'].map(h => <th key={h} style={s.th}>{h}</th>)}</tr></thead>
             <tbody>
               {shown.map(t => {
                 const tier = t.tier_id ? tierById[t.tier_id] : null;
@@ -126,6 +127,7 @@ export default function ScratchOffAdminPanel({ eventId, theme, actorId, onChange
                     <td style={{ ...s.td, fontSize: 11, opacity: 0.6, whiteSpace: 'nowrap' }}>{new Date(t.purchased_at).toLocaleString()}</td>
                     <td style={s.td}>{t.slots_players?.display_name || '--'}</td>
                     <td style={s.td}>{games.find(g => g.id === t.game_id)?.label || '--'}</td>
+                    <td style={{ ...s.td, fontSize: 12, color: t.source === 'award' ? '#ce93d8' : '#d4af37' }}>{t.source === 'award' ? '🎁 Earned' : '🛒 Bought'}</td>
                     <td style={{ ...s.td, color: t.tier_id ? '#4CAF50' : '#666' }}>{t.tier_id ? `🏆 ${tier?.prize_label ?? 'Winner'}` : 'No win'}</td>
                     <td style={{ ...s.td, fontSize: 12, color: t.scratched_at ? '#888' : '#f0a020' }}>{t.scratched_at ? new Date(t.scratched_at).toLocaleString() : 'Not yet'}</td>
                   </tr>

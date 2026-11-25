@@ -301,6 +301,7 @@ export default function ScratchOffStore({ eventId, user, myPlayer, myCpc, theme,
   const [buying, setBuying] = useState(null);
   const [msg, setMsg] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [categories, setCategories] = useState({});
 
   const resolveIcon = makeIconResolver(games, symbolSrc);
 
@@ -319,6 +320,12 @@ export default function ScratchOffStore({ eventId, user, myPlayer, myCpc, theme,
 
   useEffect(() => { loadGames(); }, [loadGames]);
   useEffect(() => { loadTickets(); }, [loadTickets]);
+
+  // Category names for "earned by scoring X" tickets
+  useEffect(() => {
+    supabase.from('slots_categories').select('id, label').eq('event_id', eventId)
+      .then(({ data }) => setCategories(Object.fromEntries((data ?? []).map(c => [c.id, c.label]))));
+  }, [eventId]);
 
   useEffect(() => {
     const ch = supabase.channel(`scratch-games-${eventId}`)
@@ -369,7 +376,7 @@ export default function ScratchOffStore({ eventId, user, myPlayer, myCpc, theme,
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {unscratched.map(t => (
               <button key={t.id} onClick={() => setOpenTicket(t)} style={{ background: theme, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 16px', fontWeight: 800, fontSize: 14, cursor: 'pointer' }}>
-                🎫 Scratch {gameFor(t.game_id)?.label ?? 'ticket'}
+                {t.source === 'award' ? '🎁' : '🎫'} Scratch {gameFor(t.game_id)?.label ?? 'ticket'}
               </button>
             ))}
           </div>
@@ -383,7 +390,9 @@ export default function ScratchOffStore({ eventId, user, myPlayer, myCpc, theme,
           const mine = countByGame[g.id] ?? 0;
           const limitReached = g.max_per_player != null && mine >= g.max_per_player;
           const canAfford = myPlayer && myCpc >= g.cost_cpc;
-          const disabled = !user || !myPlayer || soldOut || limitReached || !canAfford || buying === g.id;
+          const forSale = g.sell_in_store !== false;
+          const earnFrom = g.award_category_id ? (categories[g.award_category_id] ?? 'a quest') : null;
+          const disabled = !forSale || !user || !myPlayer || soldOut || limitReached || !canAfford || buying === g.id;
           let label = `Buy ticket · ${g.cost_cpc.toLocaleString()} CPC`;
           if (!user) label = 'Log In';
           else if (!myPlayer) label = 'Not Enrolled';
@@ -391,6 +400,7 @@ export default function ScratchOffStore({ eventId, user, myPlayer, myCpc, theme,
           else if (limitReached) label = 'Limit Reached';
           else if (!canAfford) label = 'Not enough CPC';
           if (buying === g.id) label = '...';
+          if (!forSale) label = soldOut ? 'All tickets given out' : limitReached ? `✔ You've earned ${mine}` : `🎁 Earn it: score ${earnFrom}`;
           const grand = g.tiers[0];
 
           return (
@@ -401,6 +411,11 @@ export default function ScratchOffStore({ eventId, user, myPlayer, myCpc, theme,
               </div>
               <div style={{ padding: 14 }}>
                 {g.description && <div style={{ fontSize: 12, color: '#aaa', marginBottom: 8 }}>{g.description}</div>}
+                {earnFrom && (
+                  <div style={{ background: '#2a1033', border: '1px solid #6a2c80', color: '#e1bee7', borderRadius: 6, padding: '6px 10px', fontSize: 12, fontWeight: 700, marginBottom: 10 }}>
+                    🎁 FREE ticket for scoring <span style={{ color: '#fff' }}>{earnFrom}</span>{g.max_per_player != null ? ` (max ${g.max_per_player} each)` : ''}
+                  </div>
+                )}
                 {grand && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                     <img src={tierSrc(grand, symbolSrc)} alt="" style={{ width: 36, height: 36, objectFit: 'contain' }} />
@@ -431,12 +446,12 @@ export default function ScratchOffStore({ eventId, user, myPlayer, myCpc, theme,
                   Overall odds: <span style={{ color: '#4CAF50', fontWeight: 700 }}>{formatOneIn(odds.overall)}</span>
                 </div>
                 <div style={{ fontSize: 11, color: '#888', marginBottom: 10 }}>
-                  {soldOut ? 'All tickets sold' : `${g.tickets_remaining.toLocaleString()} of ${g.total_tickets.toLocaleString()} tickets left`}
-                  {g.max_per_player != null && <span style={{ color: limitReached ? '#ef5350' : '#90CAF9' }}> · {myPlayer ? `${mine}/${g.max_per_player} bought` : `max ${g.max_per_player} each`}</span>}
+                  {soldOut ? 'All tickets given out' : `${g.tickets_remaining.toLocaleString()} of ${g.total_tickets.toLocaleString()} tickets left`}
+                  {g.max_per_player != null && <span style={{ color: limitReached ? (forSale ? '#ef5350' : '#81c784') : '#90CAF9' }}> · {myPlayer ? `${mine}/${g.max_per_player} yours` : `max ${g.max_per_player} each`}</span>}
                 </div>
 
                 <button onClick={() => handleBuy(g)} disabled={disabled}
-                  style={{ width: '100%', padding: '11px', fontSize: 14, fontWeight: 800, color: '#fff', border: 'none', borderRadius: 8, background: disabled ? '#333' : theme, cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled && buying !== g.id ? 0.6 : 1 }}>
+                  style={{ width: '100%', padding: '11px', fontSize: 14, fontWeight: 800, color: '#fff', border: 'none', borderRadius: 8, background: !forSale ? '#4a1f5c' : disabled ? '#333' : theme, cursor: disabled ? 'default' : 'pointer', opacity: forSale && disabled && buying !== g.id ? 0.6 : 1 }}>
                   {label}
                 </button>
               </div>

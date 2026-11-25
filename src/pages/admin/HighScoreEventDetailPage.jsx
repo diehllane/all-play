@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { useAuth } from '../../contexts/AuthContext';
+import { useEventPermissions } from '../../contexts/AuthContext';
 import {
   getHSConfig, getHSTeams, getHSPlayers, getHSDailyTotals,
   buildHSStandings, getHSLastCommittedDay,
@@ -14,9 +14,9 @@ const ACC = '#c62828';
 
 export default function HighScoreEventDetailPage() {
   const { id: eventId } = useParams();
-  const { profile } = useAuth();
+  
   const navigate = useNavigate();
-  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
+  const { canManage } = useEventPermissions();
 
   const [event, setEvent] = useState(null);
   const [config, setConfig] = useState(null);

@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth, useEventPermissions } from '../../contexts/AuthContext';
 import { commitSlotsDay, undoSlotsCommit, calcTokens } from '../../lib/slots';
 
 export default function SlotsScoreEntryPage() {
   const { eventId } = useParams();
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
 
   const [event, setEvent] = useState(null);
   const [config, setConfig] = useState(null);
@@ -27,8 +27,8 @@ export default function SlotsScoreEntryPage() {
   const [commitMsg, setCommitMsg] = useState('');
   const [undoLoading, setUndoLoading] = useState(false);
 
-  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
-  const canEnter = canManage || profile?.role === 'scorer';
+  const { canManage, canScore } = useEventPermissions();
+  const canEnter = canScore;
   const canCommit = canEnter; // scorers commit; undo stays runner/owner only
 
   const loadAll = useCallback(async () => {
@@ -123,7 +123,19 @@ export default function SlotsScoreEntryPage() {
     setCommitMsg('');
     try {
       const result = await commitSlotsDay(eventId, dayNumber, user.id);
-      setCommitMsg(`Day ${dayNumber} committed! ${result?.player_results?.length ?? 0} players updated.`);
+      let msg = `Day ${dayNumber} committed! ${result?.playerResults?.length ?? 0} players updated.`;
+      const sa = result?.scratchAwards;
+      if (sa?.error) {
+        msg += ` ⚠ Scratch-off tickets were NOT handed out: ${sa.error}`;
+      } else if (sa) {
+        const given = (sa.awarded ?? []).reduce((n, a) => n + a.count, 0);
+        if (given > 0) msg += ` 🎁 ${given} scratch-off ticket${given === 1 ? '' : 's'} awarded.`;
+        const skipped = [];
+        if (sa.skippedSoldOut) skipped.push(`${sa.skippedSoldOut} not given (pool empty)`);
+        if (sa.skippedLimit) skipped.push(`${sa.skippedLimit} over the per-player limit`);
+        if (skipped.length) msg += ` (${skipped.join(', ')})`;
+      }
+      setCommitMsg(msg);
       // Reset form — loadAll will advance dayNumber and fetch empty entries for next day
       setSelectedPlayer('');
       setSelectedCategory('');
@@ -138,11 +150,15 @@ export default function SlotsScoreEntryPage() {
 
   const handleUndo = async () => {
     if (!lastCommit) return;
-    if (!confirm(`Undo Day ${lastCommit.day_number} commit? Player token balances will roll back.`)) return;
+    if (!confirm(`Undo Day ${lastCommit.day_number} commit? Player token balances will roll back, and any scratch-off tickets this day awarded that haven't been scratched yet will be taken back.`)) return;
     setUndoLoading(true);
     try {
-      await undoSlotsCommit(eventId);
-      setCommitMsg('Commit undone. Scores are back to saved state.');
+      const res = await undoSlotsCommit(eventId, user.id);
+      let msg = 'Commit undone. Scores are back to saved state.';
+      const r = res?.scratchRevoked;
+      if (r?.revoked) msg += ` ${r.revoked} unscratched scratch-off ticket${r.revoked === 1 ? '' : 's'} taken back.`;
+      if (r?.keptScratched) msg += ` ⚠ ${r.keptScratched} awarded ticket${r.keptScratched === 1 ? ' was' : 's were'} already scratched and kept (check the Prize Board).`;
+      setCommitMsg(msg);
       await loadAll();
     } catch (e) {
       setCommitMsg('Undo error: ' + e.message);

@@ -127,7 +127,7 @@ export default function StaffPanel() {
       {/* ── Scorers ── */}
       <div style={s.card}>
         <div style={{ ...s.cardTitle, color: ROLE_COLORS.scorer }}>SCORERS ({scorers.length})</div>
-        <p style={s.cardDesc}>Scorers can enter scores and commit days for any event. No per-event assignment needed.</p>
+        <p style={s.cardDesc}>Creates the account only. To let them score, add them on each event's 👥 Staff page (Dashboard → event card → Staff). Any account can be a Runner on one event, a Scorer on another and a player in a third.</p>
 
         <form onSubmit={e => createAccount(e, 'scorer', scorerUsername, scorerPassword, () => { setScorerUsername(''); setScorerPassword(''); })}
           style={s.formRow}>

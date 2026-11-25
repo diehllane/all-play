@@ -1,5 +1,6 @@
 // src/App.jsx
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Navbar from './components/Navbar';
 
@@ -37,6 +38,7 @@ import SlotsEditPage from './pages/admin/SlotsEditPage';
 import OwnerPage from './pages/admin/OwnerPage';
 import StaffPanel from './pages/admin/StaffPanel';
 import AuditLogPage from './pages/admin/AuditLogPage';
+import EventStaffPage from './pages/admin/EventStaffPage';
 import PlayerPage from './pages/player/PlayerPage';
 
 const BASE = '/all-play';
@@ -48,29 +50,56 @@ function RequireAuth({ children }) {
   return children;
 }
 
-// Scorer, event_runner, owner — blocks players
+// Admin area: owner, staff accounts, or anyone assigned to at least one event
 function RequireStaff({ children }) {
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, isAnyStaff } = useAuth();
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
-  const staffRoles = ['scorer', 'event_runner', 'owner'];
-  if (profile && !staffRoles.includes(profile.role)) {
+  if (profile && !isAnyStaff) {
     return <Navigate to={profile.role === 'player' ? '/player' : '/'} replace />;
   }
   return children;
 }
 
-// Event_runner or owner — blocks scorers and players
+// Account-level: owner or Event Runner account (create events, Staff Panel)
 function RequireRunner({ children }) {
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, canCreateEvents } = useAuth();
   if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
-  const runnerRoles = ['event_runner', 'owner'];
-  if (profile && !runnerRoles.includes(profile.role)) {
+  if (profile && !canCreateEvents) {
     return <Navigate to="/admin" replace />;
   }
   return children;
 }
+
+// Per-event: checks the role on the event in the URL (:eventId or :id).
+// If the role isn't known yet (e.g. an event created moments ago), re-reads
+// assignments once before sending the user back to the dashboard.
+function RequireEventRole({ need, children }) {
+  const { user, loading, eventRole, refreshAssignments } = useAuth();
+  const params = useParams();
+  const eventId = params.eventId ?? params.id;
+  const role = eventRole(eventId);
+  const [checkedFor, setCheckedFor] = useState(null);
+  const allowed = need === 'manage'
+    ? role === 'owner' || role === 'event_runner'
+    : role === 'owner' || role === 'event_runner' || role === 'scorer';
+
+  useEffect(() => {
+    if (loading || !user || allowed || checkedFor === eventId) return;
+    let cancelled = false;
+    refreshAssignments().finally(() => { if (!cancelled) setCheckedFor(eventId); });
+    return () => { cancelled = true; };
+  }, [loading, user, allowed, checkedFor, eventId, refreshAssignments]);
+
+  if (loading) return null;
+  if (!user) return <Navigate to="/login" replace />;
+  if (allowed) return children;
+  if (checkedFor !== eventId) return null; // re-checking
+  return <Navigate to="/admin" replace state={{ denied: eventId }} />;
+}
+const RequireEventManager = ({ children }) => <RequireEventRole need="manage">{children}</RequireEventRole>;
+const RequireEventStaff   = ({ children }) => <RequireEventRole need="score">{children}</RequireEventRole>;
 
 function RequireOwner({ children }) {
   const { user, profile, loading } = useAuth();
@@ -120,32 +149,33 @@ export default function App() {
           <Route path="/admin" element={<RequireStaff><AdminDashboard /></RequireStaff>} />
           <Route path="/admin/events/create" element={<RequireRunner><CreateEventPage /></RequireRunner>} />
           <Route path="/admin/change-password" element={<RequireAuth><ChangePasswordPage /></RequireAuth>} />
+          <Route path="/admin/events/:id/staff" element={<RequireEventManager><EventStaffPage /></RequireEventManager>} />
 
           {/* All-Play — score entry: RequireStaff; management: RequireRunner */}
-          <Route path="/admin/events/:id" element={<RequireRunner><EventDetailPage /></RequireRunner>} />
-          <Route path="/admin/events/:id/edit" element={<RequireRunner><AllPlayEditPage /></RequireRunner>} />
-          <Route path="/admin/events/:id/scores" element={<RequireStaff><ScoreEntryPage /></RequireStaff>} />
-          <Route path="/admin/events/:id/export" element={<RequireRunner><ExportPage /></RequireRunner>} />
+          <Route path="/admin/events/:id" element={<RequireEventManager><EventDetailPage /></RequireEventManager>} />
+          <Route path="/admin/events/:id/edit" element={<RequireEventManager><AllPlayEditPage /></RequireEventManager>} />
+          <Route path="/admin/events/:id/scores" element={<RequireEventStaff><ScoreEntryPage /></RequireEventStaff>} />
+          <Route path="/admin/events/:id/export" element={<RequireEventManager><ExportPage /></RequireEventManager>} />
 
           {/* Board Game — score entry: RequireStaff; management: RequireRunner */}
-          <Route path="/admin/board/:eventId" element={<RequireRunner><BoardGameEventDetailPage /></RequireRunner>} />
-          <Route path="/admin/board/:eventId/scores" element={<RequireStaff><BoardGameScoreEntryPage /></RequireStaff>} />
-          <Route path="/admin/board/:eventId/edit" element={<RequireRunner><BoardGameEditPage /></RequireRunner>} />
+          <Route path="/admin/board/:eventId" element={<RequireEventManager><BoardGameEventDetailPage /></RequireEventManager>} />
+          <Route path="/admin/board/:eventId/scores" element={<RequireEventStaff><BoardGameScoreEntryPage /></RequireEventStaff>} />
+          <Route path="/admin/board/:eventId/edit" element={<RequireEventManager><BoardGameEditPage /></RequireEventManager>} />
 
           {/* High Score */}
-          <Route path="/admin/highscore/:id" element={<RequireRunner><HighScoreEventDetailPage /></RequireRunner>} />
-          <Route path="/admin/highscore/:id/scores" element={<RequireStaff><HighScoreScoreEntryPage /></RequireStaff>} />
-          <Route path="/admin/highscore/:id/edit" element={<RequireRunner><HighScoreEditPage /></RequireRunner>} />
+          <Route path="/admin/highscore/:id" element={<RequireEventManager><HighScoreEventDetailPage /></RequireEventManager>} />
+          <Route path="/admin/highscore/:id/scores" element={<RequireEventStaff><HighScoreScoreEntryPage /></RequireEventStaff>} />
+          <Route path="/admin/highscore/:id/edit" element={<RequireEventManager><HighScoreEditPage /></RequireEventManager>} />
 
           {/* Bingo */}
-          <Route path="/admin/bingo/:eventId" element={<RequireRunner><BingoEventDetailPage /></RequireRunner>} />
-          <Route path="/admin/bingo/:eventId/scores" element={<RequireStaff><BingoScoreEntryPage /></RequireStaff>} />
-          <Route path="/admin/bingo/:eventId/edit" element={<RequireRunner><BingoEditPage /></RequireRunner>} />
+          <Route path="/admin/bingo/:eventId" element={<RequireEventManager><BingoEventDetailPage /></RequireEventManager>} />
+          <Route path="/admin/bingo/:eventId/scores" element={<RequireEventStaff><BingoScoreEntryPage /></RequireEventStaff>} />
+          <Route path="/admin/bingo/:eventId/edit" element={<RequireEventManager><BingoEditPage /></RequireEventManager>} />
 
           {/* Slots */}
-          <Route path="/admin/slots/:eventId" element={<RequireRunner><SlotsEventDetailPage /></RequireRunner>} />
-          <Route path="/admin/slots/:eventId/scores" element={<RequireStaff><SlotsScoreEntryPage /></RequireStaff>} />
-          <Route path="/admin/slots/:eventId/edit" element={<RequireRunner><SlotsEditPage /></RequireRunner>} />
+          <Route path="/admin/slots/:eventId" element={<RequireEventManager><SlotsEventDetailPage /></RequireEventManager>} />
+          <Route path="/admin/slots/:eventId/scores" element={<RequireEventStaff><SlotsScoreEntryPage /></RequireEventStaff>} />
+          <Route path="/admin/slots/:eventId/edit" element={<RequireEventManager><SlotsEditPage /></RequireEventManager>} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />

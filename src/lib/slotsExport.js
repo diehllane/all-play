@@ -136,14 +136,17 @@ export async function exportSlotsXLSX(eventId, eventName) {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(storeItemRows), 'Store Items');
 
   // ── Sheet 5c: Scratch-Offs (one row per prize tier) ──────────────────────────
+  const categoryLabel = Object.fromEntries((categories ?? []).map(c => [c.id, c.label]));
   const scratchRows = (scratchGames ?? []).flatMap(g => {
     const tiers = [...(g.slots_scratch_tiers ?? [])].sort((a, b) => a.tier_rank - b.tier_rank);
     const prizes = tiers.reduce((sum, t) => sum + t.prize_count, 0);
     return tiers.map(t => ({
       'Game':              g.label,
-      'Ticket Price (CPC)': g.cost_cpc,
+      'Ticket Price (CPC)': g.sell_in_store !== false ? g.cost_cpc : '--',
+      'Sold in Store':     g.sell_in_store !== false ? 'Yes' : 'No',
+      'Earned From':       g.award_category_id ? (categoryLabel[g.award_category_id] ?? 'removed category') : '--',
       'Total Tickets':     g.total_tickets,
-      'Tickets Sold':      g.total_tickets - g.tickets_remaining,
+      'Tickets Given Out': g.total_tickets - g.tickets_remaining,
       'Overall Odds':      prizes ? `1 in ${(g.total_tickets / prizes).toFixed(2)}` : '--',
       'Tier':              t.tier_rank === 1 ? 'Grand Prize' : `Tier ${t.tier_rank}`,
       'Prize':             t.prize_label,
@@ -166,6 +169,7 @@ export async function exportSlotsXLSX(eventId, eventName) {
   const ticketRows = (scratchTickets ?? []).map(t => ({
     'Player':       t.slots_players?.display_name ?? '--',
     'Game':         gameLabel[t.game_id] ?? '--',
+    'How':          t.source === 'award' ? 'Earned' : 'Bought',
     'Cost (CPC)':   t.cost_cpc_at_purchase,
     'Result':       t.tier_id ? `WIN: ${tierLabel[t.tier_id] ?? 'Prize'}` : 'No win',
     'Purchased At': new Date(t.purchased_at).toLocaleString(),

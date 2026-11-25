@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth, useEventPermissions } from '../../contexts/AuthContext';
 import {
   getHSConfig, getHSTeams, getHSPlayers, getHSEntries,
   addHSEntry, removeHSEntry, commitHSDay, undoHSDay,
@@ -18,8 +18,8 @@ const ACC = '#c62828';
 export default function HighScoreScoreEntryPage() {
   const { id: eventId } = useParams();
   const { profile } = useAuth();
-  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
-  const canCommit = canManage || profile?.role === 'scorer';
+  const { canManage, canScore } = useEventPermissions();
+  const canCommit = canScore;
 
   const [event, setEvent] = useState(null);
   const [config, setConfig] = useState(null);

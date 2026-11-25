@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
-import { useAuth } from '../../contexts/AuthContext'
+import { useEventPermissions } from '../../contexts/AuthContext'
 import { logAudit } from '../../lib/audit'
 import { getEventWebhooks, setEventWebhook, clearTargetWebhook } from '../../lib/webhooks'
 
@@ -113,7 +113,7 @@ function CsvImporter({ onImport, sampleHeaders, sampleRow, label }) {
 export default function AllPlayEditPage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { profile } = useAuth()
+  
 
   const [event, setEvent] = useState(null)
   const [divisions, setDivisions] = useState([])
@@ -138,7 +138,7 @@ export default function AllPlayEditPage() {
   const [newCatName, setNewCatName] = useState('')
   const [newCatPts, setNewCatPts] = useState(1)
 
-  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner'
+  const { canManage } = useEventPermissions();
 
   const flash = (text, isError = false) => {
     setMessage({ text, isError })

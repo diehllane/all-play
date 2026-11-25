@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth, useEventPermissions } from '../../contexts/AuthContext';
 import { purchaseStoreItem, setPrizePaid, getPlayerPurchaseCounts } from '../../lib/slots';
 import ScratchOffStore from '../../components/ScratchOffStore';
 
@@ -119,7 +119,7 @@ function SpinningReel({ symbol, isSpinning, stopDelay, theme, getSymbolImg }) {
 
 export default function SlotsPage() {
   const { eventId } = useParams();
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
 
   const [config, setConfig] = useState(null);
   const [event, setEvent] = useState(null);
@@ -169,7 +169,7 @@ export default function SlotsPage() {
   const [purchaseLoading, setPurchaseLoading] = useState(null);
   const [purchaseMsg, setPurchaseMsg] = useState(null);
 
-  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
+  const { canManage } = useEventPermissions();
 
   const loadAll = useCallback(async () => {
     try {

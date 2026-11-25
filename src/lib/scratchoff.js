@@ -82,8 +82,11 @@ export function formatOneIn(oneIn) {
  */
 export function validateScratchGame(draft) {
   if (!draft.label?.trim()) return 'Give the ticket a name.';
+  const sell = draft.sell_in_store !== false;
+  const award = !!draft.award_category_id;
+  if (!sell && !award) return 'Choose how players get tickets: sold in the store, earned from a category, or both.';
   const cost = Number(draft.cost_cpc);
-  if (!Number.isFinite(cost) || cost < 0) return 'Ticket price must be 0 CPC or more.';
+  if (sell && (draft.cost_cpc === '' || !Number.isFinite(cost) || cost < 0)) return 'Ticket price must be 0 CPC or more.';
   const total = Number(draft.total_tickets);
   if (!Number.isInteger(total) || total < 1) return 'Total tickets must be a whole number of at least 1.';
   if (!draft.tiers?.length) return 'Add at least one prize tier.';
@@ -130,6 +133,29 @@ export async function fetchMyScratchTickets(playerId) {
   return data ?? [];
 }
 
+/**
+ * Category rewards: after a day is committed, give each player who scored the
+ * linked category one ticket per counted entry (capped by max per player and by
+ * tickets left). Safe to call twice for the same commit.
+ * Returns { awarded: [{ player_id, game_label, count }], skippedSoldOut, skippedLimit }.
+ */
+export async function awardScratchForCommit(commitId, actorId) {
+  const { data, error } = await supabase.rpc('award_scratch_tickets_for_commit', { p_commit_id: commitId, p_actor_id: actorId });
+  if (error) throw new Error(error.message || 'Could not award scratch-off tickets.');
+  return data;
+}
+
+/**
+ * Undo support: takes back award tickets from a commit that haven't been
+ * scratched and returns them to the pool. Already-scratched ones are kept.
+ * Returns { revoked, keptScratched }.
+ */
+export async function revokeScratchForCommit(commitId, actorId) {
+  const { data, error } = await supabase.rpc('revoke_scratch_awards_for_commit', { p_commit_id: commitId, p_actor_id: actorId });
+  if (error) throw new Error(error.message || 'Could not take back scratch-off tickets.');
+  return data;
+}
+
 /** Every ticket in an event (staff only via RLS). */
 export async function fetchEventScratchTickets(eventId) {
   const { data, error } = await supabase
@@ -168,12 +194,17 @@ export async function saveScratchGame(eventId, draft) {
   const err = validateScratchGame(draft);
   if (err) throw new Error(err);
 
+  // How tickets are handed out doesn't change the pool or its odds, so these
+  // stay editable after tickets have been issued.
   const base = {
     label: draft.label.trim(),
     description: draft.description?.trim() || null,
     max_per_player: draft.max_per_player === '' || draft.max_per_player == null ? null : Number(draft.max_per_player),
     is_active: draft.is_active !== false,
+    sell_in_store: draft.sell_in_store !== false,
+    award_category_id: draft.award_category_id || null,
   };
+  const costCpc = draft.sell_in_store !== false ? Number(draft.cost_cpc) : 0;
 
   const tierRows = (gameId) => draft.tiers.map((t, i) => ({
     game_id: gameId,
@@ -189,7 +220,7 @@ export async function saveScratchGame(eventId, draft) {
   // ── Create ──
   if (!draft.id) {
     const { data: game, error } = await supabase.from('slots_scratch_games')
-      .insert({ ...base, event_id: eventId, cost_cpc: Number(draft.cost_cpc), total_tickets: Number(draft.total_tickets), tickets_remaining: Number(draft.total_tickets), sort_order: draft.sort_order ?? 0 })
+      .insert({ ...base, event_id: eventId, cost_cpc: costCpc, total_tickets: Number(draft.total_tickets), tickets_remaining: Number(draft.total_tickets), sort_order: draft.sort_order ?? 0 })
       .select().single();
     if (error) throw error;
     const { error: tErr } = await supabase.from('slots_scratch_tiers').insert(tierRows(game.id));
@@ -207,7 +238,7 @@ export async function saveScratchGame(eventId, draft) {
 
   if ((sold ?? 0) === 0) {
     const { error: gErr } = await supabase.from('slots_scratch_games')
-      .update({ ...base, cost_cpc: Number(draft.cost_cpc), total_tickets: Number(draft.total_tickets), tickets_remaining: Number(draft.total_tickets) })
+      .update({ ...base, cost_cpc: costCpc, total_tickets: Number(draft.total_tickets), tickets_remaining: Number(draft.total_tickets) })
       .eq('id', draft.id).select();
     if (gErr) throw gErr;
     const { error: dErr } = await supabase.from('slots_scratch_tiers').delete().eq('game_id', draft.id).select();
@@ -217,8 +248,15 @@ export async function saveScratchGame(eventId, draft) {
     return { id: draft.id };
   }
 
-  // Tickets have sold: presentation-only edits
-  const { error: gErr } = await supabase.from('slots_scratch_games').update(base).eq('id', draft.id).select();
+  // Tickets have been issued: presentation/distribution edits only. One exception:
+  // an earn-only game being opened up for store sale may set its first price.
+  const lockedUpdate = { ...base };
+  if (base.sell_in_store) {
+    const { count: bought } = await supabase.from('slots_scratch_tickets')
+      .select('id', { count: 'exact', head: true }).eq('game_id', draft.id).eq('source', 'purchase');
+    if ((bought ?? 0) === 0) lockedUpdate.cost_cpc = costCpc;
+  }
+  const { error: gErr } = await supabase.from('slots_scratch_games').update(lockedUpdate).eq('id', draft.id).select();
   if (gErr) throw gErr;
   for (const t of draft.tiers) {
     if (!t.id) continue;

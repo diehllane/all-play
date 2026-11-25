@@ -4,6 +4,7 @@
 // Spin resolution is handled server-side by the slots-spin Edge Function.
 
 import { supabase } from './supabase';
+import { awardScratchForCommit, revokeScratchForCommit } from './scratchoff';
 import { sendDiscord, setEventWebhook } from './webhooks';
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
@@ -271,12 +272,23 @@ export async function commitSlotsDay(eventId, dayNumber, userId) {
     }).catch(err => console.warn('Discord webhook failed:', err.message));
   }
 
-  return { commitId: commitRow.id, playerResults };
+  // 11. Scratch-off category rewards. Runs after the commit is fully written;
+  //     a failure here is reported but never rolls back the commit (re-running the
+  //     award for the same commit is safe and only fills in what's missing).
+  let scratchAwards = null;
+  try {
+    scratchAwards = await awardScratchForCommit(commitRow.id, userId);
+  } catch (err) {
+    console.warn('Scratch-off awards failed:', err.message);
+    scratchAwards = { error: err.message };
+  }
+
+  return { commitId: commitRow.id, playerResults, scratchAwards };
 }
 
 // ─── UNDO COMMIT ──────────────────────────────────────────────────────────────
 
-export async function undoSlotsCommit(eventId) {
+export async function undoSlotsCommit(eventId, userId = null) {
   // 1. Get the most recent commit
   const { data: commits, error: cErr } = await supabase
     .from('slots_commits')
@@ -289,6 +301,11 @@ export async function undoSlotsCommit(eventId) {
 
   const commit = commits[0];
   const snap   = commit.pre_commit_snapshot;
+
+  // 1b. Take back scratch-off tickets this commit awarded (unscratched ones go back
+  //     in the pool; already-scratched ones are kept). Must run before the commit
+  //     row is deleted. If it fails, stop: nothing has been rolled back yet.
+  const scratchRevoked = await revokeScratchForCommit(commit.id, userId);
 
   // 2. Restore pre-commit token balances for all players in snapshot
   for (const [playerId, balances] of Object.entries(snap)) {
@@ -321,7 +338,7 @@ export async function undoSlotsCommit(eventId) {
     metadata: { day_number: commit.day_number, reverted_commit_id: commit.id },
   });
 
-  return { dayNumber: commit.day_number };
+  return { dayNumber: commit.day_number, scratchRevoked };
 }
 
 // ─── DISCORD WEBHOOK ─────────────────────────────────────────────────────────

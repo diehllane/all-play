@@ -1,15 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth, useEventPermissions } from '../../contexts/AuthContext';
 import { commitBingoDay, undoBingoCommit, getNextDayNumber } from '../../lib/bingo';
 
 export default function BingoScoreEntryPage() {
   const { eventId } = useParams();
   const navigate = useNavigate();
   const { profile } = useAuth();
-  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
-  const canCommit = canManage || profile?.role === 'scorer';
+  const { canManage, canScore } = useEventPermissions();
+  const canCommit = canScore;
 
   const [config, setConfig] = useState(null);
   const [squares, setSquares] = useState([]);

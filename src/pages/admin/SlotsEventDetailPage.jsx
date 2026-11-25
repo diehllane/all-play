@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth, useEventPermissions } from '../../contexts/AuthContext';
 import { awardTokens, awardCPC } from '../../lib/slots';
 import { exportSlotsXLSX } from '../../lib/slotsExport';
 import { getWebhookTargets, hasTarget } from '../../lib/webhooks';
@@ -10,8 +10,8 @@ import ScratchOffAdminPanel from '../../components/ScratchOffAdminPanel';
 export default function SlotsEventDetailPage() {
   const { eventId } = useParams();
   const navigate = useNavigate();
-  const { user, profile } = useAuth();
-  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
+  const { user } = useAuth();
+  const { canManage } = useEventPermissions();
 
   const [event, setEvent] = useState(null);
   const [config, setConfig] = useState(null);

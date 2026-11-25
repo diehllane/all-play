@@ -2,11 +2,11 @@ import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function Navbar({ eventSlug, eventName }) {
-  const { user, profile, signOut } = useAuth()
+  const { user, profile, signOut, isAnyStaff, canCreateEvents } = useAuth()
   const location = useLocation()
   const isOwner  = profile?.role === 'owner'
-  const isRunner = profile?.role === 'event_runner' || isOwner
-  const isStaff  = isRunner || profile?.role === 'scorer'
+  const isRunner = canCreateEvents
+  const isStaff  = isAnyStaff // staff account, or on the staff of at least one event
   const isPlayer = profile?.role === 'player'
   const isAdmin  = location.pathname.startsWith('/admin')
 

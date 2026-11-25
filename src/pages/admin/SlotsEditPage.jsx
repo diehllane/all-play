@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { useAuth } from '../../contexts/AuthContext';
+import { useEventPermissions } from '../../contexts/AuthContext';
 import { getEventWebhooks, setEventWebhook } from '../../lib/webhooks';
 import ScratchOffEditor from '../../components/ScratchOffEditor';
 
@@ -113,7 +113,7 @@ function CsvImporter({ onImport, sampleHeaders, sampleRow, label, themeColor }) 
 
 export default function SlotsEditPage() {
   const { eventId } = useParams();
-  const { profile } = useAuth();
+  
 
   const [event, setEvent] = useState(null);
   const [config, setConfig] = useState(null);
@@ -144,7 +144,7 @@ export default function SlotsEditPage() {
   const [editingItemId, setEditingItemId] = useState(null);
   const [editDraft, setEditDraft] = useState({});
 
-  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
+  const { canManage } = useEventPermissions();
 
   const loadAll = useCallback(async () => {
     try {

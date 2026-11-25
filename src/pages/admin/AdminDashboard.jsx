@@ -1,19 +1,18 @@
 // src/pages/admin/AdminDashboard.jsx
 
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 
 const ACC = '#c62828';
 
 export default function AdminDashboard() {
-  const { profile } = useAuth();
-  const isOwner      = profile?.role === 'owner';
-  const isRunner     = isOwner || profile?.role === 'event_runner';
-  const canCreateEvents = isRunner;
+  const { profile, isOwner, canCreateEvents, eventRole, assignments } = useAuth();
+  const location = useLocation();
+  const deniedId = location.state?.denied;
 
-  const [events, setEvents] = useState([]);
+  const [allEvents, setAllEvents] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -22,11 +21,15 @@ export default function AdminDashboard() {
         .from('events')
         .select('id, name, slug, event_type, status, start_date, end_date, created_at')
         .order('created_at', { ascending: false });
-      setEvents(data || []);
+      setAllEvents(data || []);
       setLoading(false);
     }
     load();
   }, []);
+
+  // Per-event roles: only show events this person is on (owners see everything)
+  const events = allEvents.filter(e => eventRole(e.id));
+  const roleCounts = Object.values(assignments).reduce((acc, r) => ({ ...acc, [r]: (acc[r] ?? 0) + 1 }), {});
 
   const boardGames = events.filter(e => e.event_type === 'board_game');
   const allPlay    = events.filter(e => e.event_type === 'all_play');
@@ -39,8 +42,10 @@ export default function AdminDashboard() {
       <div style={s.header}>
         <h1 style={s.title}>Admin Dashboard</h1>
         <div style={s.headerRight}>
-          <span style={s.roleTag}>{profile?.role}</span>
-          {isRunner && (
+          <span style={s.roleTag} title="Account role. Access to each event comes from that event's staff list.">
+            {isOwner ? 'owner' : `${profile?.role ?? ''}${roleCounts.event_runner ? ` · runs ${roleCounts.event_runner}` : ''}${roleCounts.scorer ? ` · scores ${roleCounts.scorer}` : ''}`}
+          </span>
+          {canCreateEvents && (
             <Link to="/admin/panel" style={s.panelBtn}>👥 Staff Panel</Link>
           )}
           {isOwner && (
@@ -52,6 +57,10 @@ export default function AdminDashboard() {
         </div>
       </div>
 
+      {deniedId && (
+        <div style={s.denied}>You're not on the staff for that event. Ask its Event Runner or an Owner to add you.</div>
+      )}
+
       {loading ? (
         <div style={s.loading}>Loading events...</div>
       ) : (
@@ -62,7 +71,9 @@ export default function AdminDashboard() {
           <EventSection title="🎯 Bingo Events"          events={bingo}      type="bingo" />
           <EventSection title="🎰 Slots Events"          events={slots}      type="slots" />
           {events.length === 0 && (
-            <div style={s.empty}>No events yet. {canCreateEvents ? 'Create one to get started.' : 'Check back soon.'}</div>
+            <div style={s.empty}>{allEvents.length === 0
+              ? <>No events yet. {canCreateEvents ? 'Create one to get started.' : 'Check back soon.'}</>
+              : <>You're not on the staff of any events yet. Ask an Event Runner or Owner to add you.{canCreateEvents ? ' You can also create your own.' : ''}</>}</div>
           )}
         </>
       )}
@@ -83,8 +94,9 @@ function EventSection({ title, events, type }) {
 }
 
 function EventCard({ event, type }) {
-  const { profile } = useAuth();
-  const isRunner = profile?.role === 'event_runner' || profile?.role === 'owner';
+  const { eventRole } = useAuth();
+  const role = eventRole(event.id);
+  const isRunner = role === 'owner' || role === 'event_runner';
 
   const statusColor = {
     active: '#4caf50',
@@ -144,6 +156,7 @@ function EventCard({ event, type }) {
             <span style={{ ...s.statusDot, background: statusColor }} />
             <span style={s.statusText}>{event.status}</span>
             {typeBadgeLabel && <span style={typeBadgeStyle}>{typeBadgeLabel}</span>}
+            {role && role !== 'owner' && <span style={role === 'event_runner' ? s.runnerBadge : s.scorerBadge}>{role === 'event_runner' ? 'Runner' : 'Scorer'}</span>}
           </div>
         </div>
       </div>
@@ -151,6 +164,7 @@ function EventCard({ event, type }) {
         {isRunner && <Link to={adminPath} style={s.actionLink}>Manage</Link>}
         <Link to={scorePath} style={s.actionLink}>Scores</Link>
         {isRunner && <Link to={editPath} style={s.actionLink}>Edit</Link>}
+        {isRunner && <Link to={`/admin/events/${event.id}/staff`} style={s.actionLink}>👥 Staff</Link>}
         <Link to={publicPath} style={{ ...s.actionLink, ...s.publicLink }}>Public ↗</Link>
       </div>
     </div>
@@ -178,6 +192,9 @@ const s = {
   statusDot: { width: 7, height: 7, borderRadius: '50%', display: 'inline-block' },
   statusText: { color: '#888', fontSize: 12 },
   typeBadge: { background: '#2a1a00', color: '#f90', borderRadius: 4, padding: '1px 6px', fontSize: 11, fontWeight: 600 },
+  runnerBadge: { background: '#1a2a1a', color: '#81c784', borderRadius: 4, padding: '1px 6px', fontSize: 11, fontWeight: 600 },
+  scorerBadge: { background: '#10202e', color: '#90caf9', borderRadius: 4, padding: '1px 6px', fontSize: 11, fontWeight: 600 },
+  denied: { background: '#2a1010', border: '1px solid #5a2020', color: '#ef9a9a', borderRadius: 6, padding: '10px 14px', fontSize: 13, marginBottom: 20 },
   cardActions: { display: 'flex', gap: 6, flexWrap: 'wrap' },
   actionLink: { background: '#2a2a2a', color: '#ccc', borderRadius: 5, padding: '5px 12px', textDecoration: 'none', fontSize: 12 },
   publicLink: { background: 'none', color: '#888', border: '1px solid #333' },

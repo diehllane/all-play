@@ -5,7 +5,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth, useEventPermissions } from '../../contexts/AuthContext';
 import { fireAllPlayWebhooks } from '../../lib/discord';
 import { getWebhookTargets, hasTarget } from '../../lib/webhooks';
 import { logAudit } from '../../lib/audit';
@@ -13,8 +13,8 @@ import { logAudit } from '../../lib/audit';
 export default function ScoreEntryPage() {
   const { id: eventId } = useParams();
   const { profile } = useAuth();
-  const canManage = profile?.role === 'event_runner' || profile?.role === 'owner';
-  const canCommit = canManage || profile?.role === 'scorer';
+  const { canManage, canScore } = useEventPermissions();
+  const canCommit = canScore;
 
   const [event, setEvent] = useState(null);
   const [divisions, setDivisions] = useState([]);
